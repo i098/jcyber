@@ -50,10 +50,7 @@
 
 The console binds to localhost; pass `-addr :8787` only if you mean to expose it.
 
-For agent-assisted setup on a remote box, give your coding agent this
-instruction — it covers everything we ran in practice: bootstrap the VPS, join
-the tailnet, configure the engine over an SSH tunnel, and optionally raise the
-phone front desk:
+For agent-assisted setup on a remote box, give your coding agent this instruction:
 
 ```text
 Deploy jcyber on a remote Ubuntu VPS. Steps:
@@ -113,6 +110,20 @@ Report each step's result before moving on. Never expose ports on the public IP.
 - **One-click update:** SHA256-verified self-update with rollback.
 
 ## How it works
+
+```mermaid
+flowchart LR
+    YOU[You] -- "goal" --> T[Task]
+    T --> P[Planner]
+    P -- "one intent per surface" --> W[Workers x5]
+    W -- "paced requests" --> REC[Recording proxy]
+    REC --> WS[Residential gateway] --> TARGET[Target]
+    W -- "facts, assets" --> G[(Knowledge graph)]
+    REC -- "every exchange" --> G
+    G -- "promise spotted" --> P
+    W -- "verified + evidence" --> F[Finding] --> R[Report agent]
+```
+
 
 A planner reads the task graph and hands one-sentence intents to workers. Each
 worker takes one intent, exercises the target, and writes what it confirms back
