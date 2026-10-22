@@ -173,9 +173,11 @@ for await (const [space, message] of app.messages) {
     if (call?.function.name === "dispatch") {
       const args = record(JSON.parse(call.function.arguments || "{}"));
       await space.send(m.content?.trim() || "on it");
+      // read receipts aren't exposed by the provider; typing shows the work
+      space.startTyping?.().catch?.(() => {});
       void subagent(str(args.prompt))
-        .then((r) => space.send(`jcyber: ${r}`))
-        .catch((e: unknown) => space.send(`jcyber error: ${e instanceof Error ? e.message : String(e)}`));
+        .then(async (r) => { await space.stopTyping?.().catch?.(() => {}); await space.send(`jcyber: ${r}`); })
+        .catch(async (e: unknown) => { await space.stopTyping?.().catch?.(() => {}); await space.send(`jcyber error: ${e instanceof Error ? e.message : String(e)}`); });
     } else {
       await space.send(m.content || "…");
     }
