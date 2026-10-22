@@ -16,27 +16,19 @@
 
 ## Quick start
 
-Do you already have Postgres?
-
-**No:** run this on your machine:
+One script does the lot: Postgres in Docker, the one binary built with the
+console embedded, then running on http://127.0.0.1:8787. Needs `docker`,
+`go` (>= 1.26) and `bun` or `npm` on the machine.
 
 ```bash
-docker run -d --name jcyber-pg -p 127.0.0.1:5432:5432 \
-  -e POSTGRES_USER=jcyber -e POSTGRES_PASSWORD=jcyber -e POSTGRES_DB=jcyber \
-  postgres:16-alpine
+git clone https://github.com/i098/jcyber.git && cd jcyber
+./install.sh
 ```
 
-**Yes:** skip that and point the DSN in the run command at it.
-
-Then build the one binary, frontend included, and start it:
+Already have Postgres? Skip the container and point the script at it:
 
 ```bash
-cd web && bun install && bun run build:static && cd ..
-mkdir -p server/webui && cp -r web/out server/webui/dist
-CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -tags embedui -o jcyber ./cmd/apagent
-
-JCYBER_PG_DSN='postgres://jcyber:jcyber@127.0.0.1:5432/jcyber?sslmode=disable' \
-  ./jcyber -addr 127.0.0.1:8787 -proxy 127.0.0.1:8788
+JCYBER_PG_DSN='postgres://user:pass@host:5432/db?sslmode=disable' ./install.sh
 ```
 
 Open http://localhost:8787 and set the admin password on the first visit
@@ -46,6 +38,15 @@ if you mean to expose it.
 Plug in a model under **System → LLM**: provider, base URL, model, key.
 DeepSeek works well (`https://api.deepseek.com`, `deepseek-flash`), or export
 `ANTHROPIC_API_KEY` before starting and the engine picks it up.
+
+For agent-assisted setup, give your coding agent this instruction:
+
+```text
+Clone https://github.com/i098/jcyber and run ./install.sh.
+Check docker, go and bun (or npm) first and tell me what is missing before
+installing anything. When the console is up, confirm http://127.0.0.1:8787
+answers and tell me the first-visit steps from README.md.
+```
 
 ## Your first run
 
