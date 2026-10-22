@@ -62,3 +62,4 @@ Thumbs.db
 /jcyber
 /jcyber.exe
 *.log
+bridge/.env
