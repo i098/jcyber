@@ -122,14 +122,23 @@ Return a concise factual summary of what happened and what was found.` },
   return "(subagent hit turn limit)";
 }
 
-// ── frontdesk: abliterated, no thinking, dispatch tool ────────
+// ── frontdesk: abliterated, no thinking, UniiChat memory ──────
+import { UniChat } from "./unichat";
+const memory = new UniChat(
+  process.env.MEMORY_DIR ?? "data",
+  front, // the cheap model summarizes the log
+  MODEL_FRONT,
+);
+
 const REACTIONS = ["eyes", "thumbs up", "check", "cross", "fire", "thinking", "exclamation"] as const;
 const REACTION_EMOJI: Record<string, string> = { eyes: "👀", "thumbs up": "👍", check: "✅", cross: "❌", fire: "🔥", thinking: "🤔", exclamation: "❗️" };
-const FRONT_SYS = `You are the front desk for jcyber, an autonomous testing console, reached over iMessage.
-Style: short, plain, no emoji spam. Answer the operator directly when you can from context.
-Reacting: you may call react once with a short label from the library (${REACTIONS.join(", ")}) to acknowledge a message — use it sparingly, only when a tapback adds meaning (e.g. "eyes" when you dispatch work, "check" for done). Not every message needs one.
-For anything needing live jcyber state or action, call dispatch with a precise subagent prompt —
-then immediately acknowledge ("on it") and stop; the result follows as a separate message.`;
+const FRONT_SYS = `You are the front desk for jcyber, an autonomous testing console, reached over iMessage, in a single chat that never ends.
+
+Your memory is the view inside <chat>: one-line summaries of the whole conversation so far, oldest first, as id+n|text. Recent lines cover one message each; older lines cover more. Its latest word on a thing is the truth. Whenever you need any information, first find its latest mention in the view and zoom until you have it whole, before you act, guess or ask. zoom(id, n) opens a line into the two lines under it; zoom(id, 1) gives the message whole; date(id) gives when it was sent. Say in your reply what you learned that will matter later.
+
+Message kinds: user (the operator's texts), front (your replies), tool/echo (your tool calls and results), work (a jcyber subagent report, starting "[jcyber]"). A subagent's report may arrive as a later message; never wait for one — acknowledge, end, and the result follows.
+
+Style: short, plain, no emoji spam. Answer the operator directly when you can from the view. Reacting: you may call react once with a label from the library (${REACTIONS.join(", ")}) — sparingly, only when a tapback adds meaning (eyes when you dispatch work, check for done); most messages need none. For anything needing live jcyber state or action, call dispatch with a precise subagent prompt, acknowledge ("on it"), and stop; the result follows as a separate message.`;
 const dispatchSpec: ChatCompletionTool = {
   type: "function",
   function: {
@@ -146,6 +155,18 @@ const reactSpec: ChatCompletionTool = {
     parameters: { type: "object", properties: { label: { type: "string", enum: [...REACTIONS], description: "Reaction from the library" } }, required: ["label"] },
   },
 };
+const zoomSpec: ChatCompletionTool = {
+  type: "function",
+  function: {
+    name: "zoom",
+    description: "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole",
+    parameters: { type: "object", properties: { id: { type: "number" }, n: { type: "number", description: "Power of 2; id must be a multiple of n" } }, required: ["id", "n"] },
+  },
+};
+const dateSpec: ChatCompletionTool = {
+  type: "function",
+  function: { name: "date", description: "The date and time of message id", parameters: { type: "object", properties: { id: { type: "number" } }, required: ["id"] } },
+};
 
 const app = await Spectrum({
   projectId: process.env.PROJECT_ID!,
@@ -158,40 +179,66 @@ for await (const [space, message] of app.messages) {
   const text = message.content.text.trim();
   if (!text) continue;
   try {
-    const messages: ChatCompletionMessageParam[] = [{ role: "system", content: FRONT_SYS }, { role: "user", content: text }];
+    const userMsgId = memory.append("user", text);
+    // a turn waits until everything before the new message is summarized
+    await memory.ensureSummarized(userMsgId);
+    const messages: ChatCompletionMessageParam[] = [
+      { role: "system", content: FRONT_SYS },
+      { role: "user", content: `${await memory.viewBlock()}\n\n${text}` },
+    ];
     let dispatchPrompt: string | null = null;
     let reply = "";
-    for (let turn = 0; turn < 3; turn++) {
+    for (let turn = 0; turn < 5; turn++) {
       const r = await front.chat.completions.create(
-        { model: MODEL_FRONT, messages, tools: [dispatchSpec, reactSpec] },
+        { model: MODEL_FRONT, messages, tools: [dispatchSpec, reactSpec, zoomSpec, dateSpec] },
       );
       const m = r.choices[0]?.message;
       if (!m) break;
       messages.push(m);
+      if (m.content) memory.append("front", m.content);
       const calls = m.tool_calls ?? [];
       if (!calls.length) { reply = m.content ?? ""; break; }
       let dispatched = false;
       for (const tc of calls) {
         if (tc.type !== "function") continue;
+        const args = record(JSON.parse(tc.function.arguments || "{}"));
+        memory.append("tool", `${tc.function.name}(${tc.function.arguments ?? ""})`);
+        let out: string;
         if (tc.function.name === "react") {
-          const label = str(record(JSON.parse(tc.function.arguments || "{}")).label);
-          const emoji = REACTION_EMOJI[label] ?? "👀";
+          const emoji = REACTION_EMOJI[str(args.label)] ?? "👀";
           await space.send(reaction(emoji, message)).catch(() => {});
-          messages.push({ role: "tool", tool_call_id: tc.id, content: `reacted ${emoji}` });
+          out = `reacted ${emoji}`;
+        } else if (tc.function.name === "zoom") {
+          out = await memory.zoom(Number(args.id), Number(args.n) || 1);
+        } else if (tc.function.name === "date") {
+          out = memory.dateOf(Number(args.id));
         } else if (tc.function.name === "dispatch") {
-          dispatchPrompt = str(record(JSON.parse(tc.function.arguments || "{}")).prompt);
+          dispatchPrompt = str(args.prompt);
           dispatched = true;
-          messages.push({ role: "tool", tool_call_id: tc.id, content: "dispatched" });
+          out = "dispatched";
+        } else {
+          out = "unknown tool";
         }
+        memory.append("echo", out.slice(0, 4_000));
+        messages.push({ role: "tool", tool_call_id: tc.id, content: out });
       }
       if (dispatched) { reply = m.content ?? "on it"; break; }
     }
     if (dispatchPrompt !== null) {
+      const prompt = dispatchPrompt;
       await space.send(reply.trim() || "on it");
       space.startTyping?.().catch?.(() => {});
-      void subagent(dispatchPrompt)
-        .then(async (res) => { await space.stopTyping?.().catch?.(() => {}); await space.send(`jcyber: ${res}`); })
-        .catch(async (e: unknown) => { await space.stopTyping?.().catch?.(() => {}); await space.send(`jcyber error: ${e instanceof Error ? e.message : String(e)}`); });
+      void subagent(prompt)
+        .then(async (res) => {
+          await space.stopTyping?.().catch?.(() => {});
+          memory.append("work", `[jcyber] ${res}`);
+          await space.send(`jcyber: ${res}`);
+        })
+        .catch(async (e: unknown) => {
+          await space.stopTyping?.().catch?.(() => {});
+          memory.append("work", `[jcyber] error: ${e instanceof Error ? e.message : String(e)}`);
+          await space.send(`jcyber error: ${e instanceof Error ? e.message : String(e)}`);
+        });
     } else {
       await space.send(reply.trim() || "…");
     }
