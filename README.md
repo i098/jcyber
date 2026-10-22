@@ -7,7 +7,7 @@
 **Point it at a web app, it maps the thing, verifies what it finds, and writes it up, enjoy!**
 
 [![Go](https://img.shields.io/badge/go-1.26-00ADD8?style=for-the-badge&logo=go)](https://golang.org)
-[![CI](https://github.com/i098/jcyber/actions/workflows/ci.yml/badge.svg)](https://github.com/i098/jcyber/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/i098/jcyber/ci.yml?style=for-the-badge&logo=githubactions)](https://github.com/i098/jcyber/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/AGPL--3.0-0d9488?style=for-the-badge)](LICENSE)
 [![Stars](https://img.shields.io/github/stars/i098/jcyber?style=for-the-badge&logo=github&color=d97706)](https://github.com/i098/jcyber/stargazers)
 
