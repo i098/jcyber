@@ -38,10 +38,14 @@ const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const TOOLS: Record<string, ToolDef> = {};
 
 async function deepseek(model: string, url: string, key: string, messages: Msg[], tools: { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } }[] | undefined, thinking: boolean): Promise<Msg> {
-  const body: Record<string, unknown> = { model, messages, stream: false, thinking: { type: thinking ? "enabled" : "disabled" } };
-  if (thinking) body.reasoning_effort = "high";
+  const body: Record<string, unknown> = { model, messages, stream: false };
+  // only DeepSeek accepts the thinking controls; abliteration rejects unknown params
+  if (url.includes("deepseek.com")) {
+    body.thinking = { type: thinking ? "enabled" : "disabled" };
+    if (thinking) body.reasoning_effort = "high";
+  }
   if (tools?.length) body.tools = tools;
-  const res = await fetch("https://api.deepseek.com/chat/completions", {
+  const res = await fetch(`${url}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify(body),
