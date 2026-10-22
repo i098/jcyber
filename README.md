@@ -108,5 +108,4 @@ Built on Go, Next.js, and AGPL-3.0 open-source components: see
 
 ## License
 
-AGPL-3.0, see [LICENSE](LICENSE). Point it only at targets you are allowed to
-test.
+AGPL-3.0, see [LICENSE](LICENSE).
