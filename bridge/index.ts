@@ -177,14 +177,85 @@ const TOOLS: Record<string, ToolDef> = {
       }));
     },
   },
-  list_findings: {
-    description: "List recent verified findings with severity (fast direct read).",
-    parameters: { type: "object", properties: {} },
-    run: async () => {
-      const d = record(await jget("/api/exploration/findings"));
-      return JSON.stringify(arr(d.findings ?? d).slice(0, 15).map((f) => {
+  create_task: {
+    description: "Create a new jcyber task targeting a domain/host. Each target gets its own task. Include a clear goal and optional LLM profile id (1=DeepSeek Max, 5-10=Mercury 3 high). Returns the new task id.",
+    parameters: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Short task name, e.g. 'example.com scan'" },
+        goal: { type: "string", description: "What to do against the target" },
+        description: { type: "string", description: "Task description (defaults to Untitled Task)" },
+        llm_profile_id: { type: "number", description: "Optional LLM profile id (1=DeepSeek Max, 5-10=Mercury 3)" },
+      },
+      required: ["goal"],
+    },
+    run: async (a) => {
+      const res = await fetch(`${JCYBER_URL}/api/tasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await auth()}` },
+        body: JSON.stringify({
+          name: str(a.name),
+          goal: str(a.goal),
+          description: str(a.description) || "Untitled Task",
+          llm_profile_id: Number(a.llm_profile_id) > 0 ? Number(a.llm_profile_id) : undefined,
+          seed_first_intent: true,
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) throw new Error(`create task ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      const t = record(await res.json());
+      return JSON.stringify({ id: t.id, name: str(t.name), status: str(t.status) });
+    },
+  },
+  task_detail: {
+    description: "Get details for one specific jcyber task by id (status, pause state, findings).",
+    parameters: { type: "object", properties: { id: { type: "number", description: "Task id" } }, required: ["id"] },
+    run: async (a) => {
+      const id = Number(a.id);
+      if (!id) return "missing task id";
+      const d = record(await jget(`/api/tasks/${id}`));
+      return JSON.stringify({
+        id: d.id,
+        name: str(d.name),
+        description: str(d.description).slice(0, 200),
+        goal: str(d.goal).slice(0, 300),
+        status: str(d.status),
+        paused: d.paused,
+        queued: d.queued,
+        in_flight: d.in_flight,
+        findings: d.findings,
+      });
+    },
+  },
+  task_control: {
+    description: "Pause or resume a task by id.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "number", description: "Task id" },
+        action: { type: "string", enum: ["pause", "resume"], description: "pause or resume" },
+      },
+      required: ["id", "action"],
+    },
+    run: async (a) => {
+      const res = await fetch(`${JCYBER_URL}/api/tasks/${Number(a.id)}/control`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await auth()}` },
+        body: JSON.stringify({ action: str(a.action) }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) throw new Error(`control ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      return (await res.text()).slice(0, 400);
+    },
+  },
+  task_findings: {
+    description: "List findings for a specific task by id (fast direct read).",
+    parameters: { type: "object", properties: { id: { type: "number", description: "Task id" } }, required: ["id"] },
+    run: async (a) => {
+      const d = record((await jget(`/api/exploration/findings?task=${Number(a.id)}`)) as unknown);
+      return JSON.stringify(arr(d.items ?? d).slice(0, 15).map((f) => {
         const r = record(f);
-        return { id: r.id, severity: str(r.severity), name: str(r.name) || str(r.summary), state: str(r.status) || str(r.state) };
+        return { id: r.id, name: str(r.name) || str(r.vulnclass), severity: str(r.severity), status: str(r.status), summary: str(r.summary).slice(0, 200) };
       }));
     },
   },
@@ -196,9 +267,12 @@ const toolSpecs = (): ChatCompletionTool[] =>
 async function subagent(prompt: string): Promise<string> {
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: `You are a jcyber operations subagent. Fulfill this request using your tools.
-Prefer list_tasks/list_findings for plain reads; use jcyber_chat for anything that changes state
-(create/pause tasks, hints, worker messages) or needs platform reasoning.
-Return a concise factual summary of what happened and what was found, in plain language with exact names, ids and numbers. No headings, no fluff: the front desk will text it to the user.` },
+Prefer direct tools for everything that has one: create_task for new targets, task_detail/task_findings for reads,
+task_control to pause/resume, list_tasks for overview. Use jcyber_chat only for things without a direct tool
+(hints, worker messages, platform reasoning).
+When multiple targets are requested, create one task per target so they run in parallel.
+Return a concise factual summary of what happened, with exact task ids, names and statuses, in plain language.
+The front desk will text it to the user.` },
     { role: "user", content: prompt },
   ];
   for (let turn = 0; turn < 8; turn++) {
@@ -245,7 +319,7 @@ How you text:
 - If they ask "you there?" while work is running, say yeah, still on it — add "anything else?" if it fits. Never just "yeah".
 
 What you have:
-- dispatch(prompt): a subagent goes to jcyber for live state or actions — tasks, findings, scans, hints, pauses. Make the prompt self-contained: the real question plus any names or ids from the chat. One dispatch per turn. Send a short ack in the same turn, then stop — or react with eyes instead of a text ack, your call. Vary it. The result comes back to you later and you'll tell them.
+- dispatch(prompt): a subagent goes to jcyber for live state or actions — tasks, findings, scans, hints, pauses. Make the prompt self-contained: the real question plus any names or ids from the chat. One dispatch per turn. When multiple targets are requested, the subagent creates one task per target and you report each separately. Send a short ack in the same turn, then stop — or react with eyes instead of a text ack, your call. Vary it. The result comes back to you later and you'll tell them.
 - react(label): a tapback on their message. Labels: ${REACTIONS.join(", ")}.
 - zoom(id, n) / date(id): only when you need a detail from old history.
 
