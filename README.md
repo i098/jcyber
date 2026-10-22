@@ -48,7 +48,11 @@
    (`https://api.deepseek.com`, `deepseek-flash`), or export `ANTHROPIC_API_KEY`
    before starting and the engine picks it up.
 
-The console binds to localhost; pass `-addr :8787` only if you mean to expose it.
+By default the console accepts connections from the same machine only. To use
+it from another machine, either put the box on a tailnet (see
+[Architecture](ARCHITECTURE.md)) or start it with `-addr :8787` to listen on
+every interface — that puts the console on the network, so do it only where
+you control access.
 
 For agent-assisted setup on a remote box, give your coding agent this instruction:
 
