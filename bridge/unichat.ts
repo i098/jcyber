@@ -82,7 +82,9 @@ ${input}
     const msgs: OpenAI.Chat.ChatCompletionMessageParam[] = [{ role: "user", content: task }];
     let best = "";
     for (let attempt = 0; attempt < 5; attempt++) {
-      const r = await this.cheap.chat.completions.create({ model: this.model, messages: msgs });
+      const r = await this.cheap.chat.completions.create({
+        model: this.model, messages: msgs, reasoning_effort: "none",
+      } as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
       const line = text(r.choices[0]?.message?.content).trim();
       if (Buffer.byteLength(line, "utf8") <= LIMIT) return line;
       if (!best || Buffer.byteLength(line, "utf8") < Buffer.byteLength(best, "utf8")) best = line;
@@ -156,17 +158,39 @@ ${line.slice(0, LIMIT)}| ← LIMIT` });
     this.persist();
   }
 
-  render(): string {
-    return this.view.map(([l, i]) => {
-      const n = this.nodes[this.key(l, i)];
-      const covers = 2 ** l;
-      return `${i}+${covers}|${(n ?? "(not summarized yet: zoom it)").replace(/\n/g, " ")}`;
-    }).join("\n");
+  // last messages verbatim, for the front desk to sound continuous without
+  // reading its own tool logs or reciting the summary view
+  recent(limit = 24): string {
+    const lines = this.log
+      .filter((m) => m.kind === "user" || m.kind === "front")
+      .slice(-limit)
+      .map((m) => `${m.kind === "user" ? "them" : "you"}: ${m.text.replace(/\s+/g, " ").slice(0, 500)}`);
+    return lines.join("\n") || "(none yet)";
   }
 
-  async viewBlock(): Promise<string> {
+  private line([l, i]: ViewLine): string {
+    const n = this.nodes[this.key(l, i)];
+    return `${i}+${2 ** l}|${(n ?? "(not summarized yet: zoom it)").replace(/\n/g, " ")}`;
+  }
+
+  render(): string {
+    return this.view.map((v) => this.line(v)).join("\n");
+  }
+
+  // ponytail: every request gets the newest 6KB of the view; older gist
+  // stays in the log, just not in the prompt. Raise if recall matters more.
+  async viewBlock(limit = 6_000): Promise<string> {
     await this.shrinkView();
-    return `<chat>\n${this.render()}\n</chat>`;
+    const lines: string[] = [];
+    let bytes = 0;
+    for (let v = this.view.length - 1; v >= 0; v--) {
+      const line = this.line(this.view[v]!);
+      const size = Buffer.byteLength(line, "utf8") + 1;
+      if (lines.length && bytes + size > limit) break;
+      lines.push(line);
+      bytes += size;
+    }
+    return `<chat>\n${lines.reverse().join("\n")}\n</chat>`;
   }
 
   async zoom(id: number, n: number): Promise<string> {
