@@ -123,8 +123,11 @@ Return a concise factual summary of what happened and what was found.` },
 }
 
 // ── frontdesk: abliterated, no thinking, dispatch tool ────────
+const REACTIONS = ["eyes", "thumbs up", "check", "cross", "fire", "thinking", "exclamation"] as const;
+const REACTION_EMOJI: Record<string, string> = { eyes: "👀", "thumbs up": "👍", check: "✅", cross: "❌", fire: "🔥", thinking: "🤔", exclamation: "❗️" };
 const FRONT_SYS = `You are the front desk for jcyber, an autonomous testing console, reached over iMessage.
 Style: short, plain, no emoji spam. Answer the operator directly when you can from context.
+Reacting: you may call react once with a short label from the library (${REACTIONS.join(", ")}) to acknowledge a message — use it sparingly, only when a tapback adds meaning (e.g. "eyes" when you dispatch work, "check" for done). Not every message needs one.
 For anything needing live jcyber state or action, call dispatch with a precise subagent prompt —
 then immediately acknowledge ("on it") and stop; the result follows as a separate message.`;
 const dispatchSpec: ChatCompletionTool = {
@@ -133,6 +136,14 @@ const dispatchSpec: ChatCompletionTool = {
     name: "dispatch",
     description: "Spawn a subagent to interact with jcyber and report back",
     parameters: { type: "object", properties: { prompt: { type: "string", description: "What the subagent should find out or do in jcyber" } }, required: ["prompt"] },
+  },
+};
+const reactSpec: ChatCompletionTool = {
+  type: "function",
+  function: {
+    name: "react",
+    description: "Attach a tapback reaction to the operator's message",
+    parameters: { type: "object", properties: { label: { type: "string", enum: [...REACTIONS], description: "Reaction from the library" } }, required: ["label"] },
   },
 };
 
@@ -147,22 +158,42 @@ for await (const [space, message] of app.messages) {
   const text = message.content.text.trim();
   if (!text) continue;
   try {
-    // tapback on the operator's message: the closest thing to a read receipt
-    await space.send(reaction("👀", message)).catch(() => {});
-    const r = await front.chat.completions.create(
-      { model: MODEL_FRONT, messages: [{ role: "system", content: FRONT_SYS }, { role: "user", content: text }], tools: [dispatchSpec] },
-    );
-    const m = r.choices[0]?.message;
-    const call = m?.tool_calls?.find((tc): tc is Extract<typeof tc, { type: "function" }> => tc.type === "function" && tc.function.name === "dispatch");
-    if (call) {
-      const args = record(JSON.parse(call.function.arguments || "{}"));
-      await space.send(m?.content?.trim() || "on it");
+    const messages: ChatCompletionMessageParam[] = [{ role: "system", content: FRONT_SYS }, { role: "user", content: text }];
+    let dispatchPrompt: string | null = null;
+    let reply = "";
+    for (let turn = 0; turn < 3; turn++) {
+      const r = await front.chat.completions.create(
+        { model: MODEL_FRONT, messages, tools: [dispatchSpec, reactSpec] },
+      );
+      const m = r.choices[0]?.message;
+      if (!m) break;
+      messages.push(m);
+      const calls = m.tool_calls ?? [];
+      if (!calls.length) { reply = m.content ?? ""; break; }
+      let dispatched = false;
+      for (const tc of calls) {
+        if (tc.type !== "function") continue;
+        if (tc.function.name === "react") {
+          const label = str(record(JSON.parse(tc.function.arguments || "{}")).label);
+          const emoji = REACTION_EMOJI[label] ?? "👀";
+          await space.send(reaction(emoji, message)).catch(() => {});
+          messages.push({ role: "tool", tool_call_id: tc.id, content: `reacted ${emoji}` });
+        } else if (tc.function.name === "dispatch") {
+          dispatchPrompt = str(record(JSON.parse(tc.function.arguments || "{}")).prompt);
+          dispatched = true;
+          messages.push({ role: "tool", tool_call_id: tc.id, content: "dispatched" });
+        }
+      }
+      if (dispatched) { reply = m.content ?? "on it"; break; }
+    }
+    if (dispatchPrompt !== null) {
+      await space.send(reply.trim() || "on it");
       space.startTyping?.().catch?.(() => {});
-      void subagent(str(args.prompt))
+      void subagent(dispatchPrompt)
         .then(async (res) => { await space.stopTyping?.().catch?.(() => {}); await space.send(`jcyber: ${res}`); })
         .catch(async (e: unknown) => { await space.stopTyping?.().catch?.(() => {}); await space.send(`jcyber error: ${e instanceof Error ? e.message : String(e)}`); });
     } else {
-      await space.send(m?.content || "…");
+      await space.send(reply.trim() || "…");
     }
   } catch (err) {
     await space.send(`frontdesk error: ${err instanceof Error ? err.message : String(err)}`);
