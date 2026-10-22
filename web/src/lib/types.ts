@@ -1570,7 +1570,7 @@ export interface UpdateCheck {
   os: string;
   arch: string;
   repo: string;
-  /** 是否存在可回滚的上一版本（apagent.old）。 */
+  /** 是否存在可回滚的上一版本（jcyber.old）。 */
   has_backup: boolean;
   /** 本次启动时自更新自举的结论（换装失败 / 已回滚等），无事发生时为空。 */
   boot_notice?: string;

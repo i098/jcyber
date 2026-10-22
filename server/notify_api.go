@@ -449,7 +449,7 @@ func notifyTestMessage(baseURL string) notify.Message {
 			VulnClass: "Connectivity test",
 			Severity:  "low",
 			Summary:   "This is a test message from an jcyber notification channel. Receiving it confirms the channel configuration works.",
-			Assets:    []string{"apagent.example.com"},
+			Assets:    []string{"jcyber.example.com"},
 			DetailURL: baseURL,
 		}},
 		HomeURL: baseURL,

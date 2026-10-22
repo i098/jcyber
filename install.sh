@@ -59,7 +59,7 @@ mkdir -p server/webui
 rm -rf server/webui/dist
 cp -r web/out server/webui/dist
 
-CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -tags embedui -o jcyber ./cmd/apagent
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -tags embedui -o jcyber ./cmd/jcyber
 ok "built ./jcyber"
 
 # ── run ─────────────────────────────────────────────────────

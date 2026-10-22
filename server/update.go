@@ -122,7 +122,7 @@ type updateProgress struct {
 // updateHub 持有一次升级的进度并广播给 SSE 订阅者。
 //
 // running 同时充当互斥：升级期间再次 POST /api/update/apply 直接 409，
-// 避免两个 goroutine 同时往同一个 apagent.new 写。
+// 避免两个 goroutine 同时往同一个 jcyber.new 写。
 type updateHub struct {
 	mu      sync.Mutex
 	running bool
@@ -311,7 +311,7 @@ func (s *Server) updateApply(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 202, map[string]any{"ok": true, "target": rel.TagName})
 }
 
-// updateRollback 主动退回上一版本（换装前备份的 apagent.old）。
+// updateRollback 主动退回上一版本（换装前备份的 jcyber.old）。
 func (s *Server) updateRollback(w http.ResponseWriter, r *http.Request) {
 	if _, running := updHub.snapshot(); running {
 		writeErr(w, 409, "Cannot roll back while an update is in progress")

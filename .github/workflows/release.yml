@@ -28,7 +28,7 @@ jobs:
           path: web/out
           if-no-files-found: error
 
-  # Keep the archive format used by build.sh and the in-app updater.
+  # Package embedded-UI binaries for every supported release target.
   binaries:
     needs: frontend
     runs-on: ubuntu-latest
@@ -65,7 +65,7 @@ jobs:
           ./build.sh --target "${JCYBER_TARGET_OS}/${JCYBER_TARGET_ARCH}"
       - name: Smoke test Linux amd64 binary
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
-        run: dist/apagent-linux-amd64/apagent -h
+        run: dist/jcyber-linux-amd64/jcyber -h
       - uses: actions/upload-artifact@v4
         with:
           name: pkg-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -73,7 +73,7 @@ jobs:
           if-no-files-found: error
       - name: Prepare container binary
         if: matrix.goos == 'linux'
-        run: install -Dm755 dist/apagent-linux-${{ matrix.goarch }}/apagent dist/${{ matrix.goarch }}/jcyber
+        run: install -Dm755 dist/jcyber-linux-${{ matrix.goarch }}/jcyber dist/${{ matrix.goarch }}/jcyber
       - if: matrix.goos == 'linux'
         uses: actions/upload-artifact@v4
         with:

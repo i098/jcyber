@@ -146,7 +146,7 @@ chat, and approve whatever the rules flag.
 - [`traffic/`](traffic/): recording proxy and evidence
 - [`skills/`](skills/): drop-in `SKILL.md` playbooks
 - [`web/`](web/): the Next.js console
-- [`cmd/apagent/`](cmd/apagent/): entrypoint
+- [`cmd/jcyber/`](cmd/jcyber/): entrypoint
 
 ## Built with
 

@@ -10,7 +10,7 @@ import "net/http"
 //
 //	cd web && npm run build:static     # produces web/out
 //	cp -r web/out server/webui/dist    # (or use the build script)
-//	go build -tags embedui ./cmd/apagent
+//	go build -tags embedui ./cmd/jcyber
 func (s *Server) webuiHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "Frontend is not embedded in this binary (use next dev for development; build with -tags embedui for release)", http.StatusNotFound)

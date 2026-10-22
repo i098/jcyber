@@ -72,7 +72,7 @@ export function UpdateCard() {
   // 轮询 /api/health 直到版本号变化。
   //
   // 判据必须是"版本变了"而不是"能连上了"：换装过程中旧版本会短暂地重新起来一次
-  // （那一次只负责把 apagent.new 换上去然后立刻退出），只看连通性会误判成功。
+  // （那一次只负责把 jcyber.new 换上去然后立刻退出），只看连通性会误判成功。
   const waitForNewVersion = React.useCallback(async (fromVersion: string) => {
     setRestarting(true);
     const deadline = Date.now() + RESTART_TIMEOUT_MS;
@@ -94,7 +94,7 @@ export function UpdateCard() {
       }
     }
     setRestarting(false);
-    toast.error("Timed out waiting for the service to restart. Check the backend logs or confirm that apagent was started with start.sh / start.bat.");
+    toast.error("Timed out waiting for the service to restart. Check the backend logs or confirm that jcyber was started with start.sh / start.bat.");
   }, []);
 
   // 订阅更新进度。SSE 不走 Next 的 /api 重写（那层会缓冲，事件推不出来）。
@@ -270,7 +270,7 @@ export function UpdateCard() {
             Updates in Docker only replace the application, not the playwright / nmap toolchain in the image. Recreating the container with
             <span className="font-mono"> docker compose up -d </span>
             reverts to the version included in the image. To update the image as well, run
-            <span className="font-mono"> docker compose pull apagent &amp;&amp; docker compose up -d apagent</span>.
+            <span className="font-mono"> docker compose pull jcyber &amp;&amp; docker compose up -d jcyber</span>.
           </p>
         )}
 
@@ -306,7 +306,7 @@ export function UpdateCard() {
 
         <p className="text-xs text-muted-foreground">
           One-click updates rely on the supervisor script to restart the application. Start jcyber with <span className="font-mono">start.sh</span> (or
-          <span className="font-mono"> start.bat</span> on Windows). When running apagent directly, it will not restart automatically after exiting.
+          <span className="font-mono"> start.bat</span> on Windows). When running jcyber directly, it will not restart automatically after exiting.
         </p>
       </CardContent>
     </Card>

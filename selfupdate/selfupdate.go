@@ -12,12 +12,12 @@
 //
 // 一次完整升级经过三次进程启动：
 //
-//	① 旧版 server 收到 /api/update/apply → 下载校验 → 暂存 apagent.new → exit 75
-//	② 脚本重新拉起旧版 → Bootstrap 发现 apagent.new → 校验+冒烟 → 换装 → exit 75
+//	① 旧版 server 收到 /api/update/apply → 下载校验 → 暂存 jcyber.new → exit 75
+//	② 脚本重新拉起旧版 → Bootstrap 发现 jcyber.new → 校验+冒烟 → 换装 → exit 75
 //	③ 脚本重新拉起，此时已是新版 → Bootstrap 记一次尝试 → 启动成功后清除标记
 //
 // 任何一步失败都退回旧版：② 校验不过就删掉暂存件继续跑旧版；③ 连续 3 次没活到
-// 清除标记（起不来就崩）则自动把 apagent.old 换回去。
+// 清除标记（起不来就崩）则自动把 jcyber.old 换回去。
 package selfupdate
 
 import (
@@ -42,11 +42,11 @@ const maxAttempts = 3
 // 别处，换装逻辑直接失效。
 type Paths struct {
 	Dir     string // 可执行文件所在目录
-	Current string // 当前运行的二进制        apagent      / apagent.exe
-	New     string // 暂存的新版本            apagent.new  / apagent.new.exe
-	Sum     string // 新版本的 sha256（hex）  apagent.new.sha256 / apagent.new.exe.sha256
-	Old     string // 换装前备份的旧版本      apagent.old  / apagent.old.exe
-	Marker  string // 升级状态标记            apagent.upgrade.json
+	Current string // 当前运行的二进制        jcyber      / jcyber.exe
+	New     string // 暂存的新版本            jcyber.new  / jcyber.new.exe
+	Sum     string // 新版本的 sha256（hex）  jcyber.new.sha256 / jcyber.new.exe.sha256
+	Old     string // 换装前备份的旧版本      jcyber.old  / jcyber.old.exe
+	Marker  string // 升级状态标记            jcyber.upgrade.json
 }
 
 // ResolvePaths 按当前可执行文件推导全部升级路径。
@@ -106,7 +106,7 @@ func writeMarker(path string, m marker) error {
 }
 
 // cleanStaged 清掉暂存件。换装成功、校验失败、用户取消都走它，避免残留的
-// apagent.new 在下次启动时被重新尝试。
+// jcyber.new 在下次启动时被重新尝试。
 func cleanStaged(p Paths) {
 	_ = os.Remove(p.New)
 	_ = os.Remove(p.Sum)

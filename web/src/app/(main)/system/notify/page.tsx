@@ -312,7 +312,7 @@ export default function NotifyPage() {
             <Label htmlFor="n-base">Backlink URL</Label>
             <Input
               id="n-base"
-              placeholder="https://apagent.example.com"
+              placeholder="https://jcyber.example.com"
               value={baseURL}
               onChange={(e) => setBaseURL(e.target.value)}
             />

@@ -9,7 +9,7 @@
 #   JCYBER_TARGET_ARCH=amd64           One target arch in single-target mode.
 #   JCYBER_TARGETS=linux/amd64,...     Comma-separated targets for multi-target mode.
 #   JCYBER_BUILD_VERSION=v0.3.3        Version embedded in the binary and archive name.
-#   JCYBER_OUTPUT=/path/to/apagent       Explicit binary path in single-target mode.
+#   JCYBER_OUTPUT=/path/to/jcyber        Explicit binary path in single-target mode.
 #   JCYBER_OUTPUT_DIR=dist             Directory for default binary paths.
 #   JCYBER_PACKAGE=1                   Create a zip archive for each target.
 #   JCYBER_PACKAGE_DIR=dist            Directory for release archives.
@@ -165,7 +165,7 @@ package_binary() {
   binary="$1"
   goos="$2"
   goarch="$3"
-  package_name="apagent-${JCYBER_BUILD_VERSION}-${goos}-${goarch}"
+  package_name="jcyber-${JCYBER_BUILD_VERSION}-${goos}-${goarch}"
   package_root="${JCYBER_PACKAGE_DIR}/${package_name}"
   archive="${JCYBER_PACKAGE_DIR}/${package_name}.zip"
 
@@ -174,7 +174,7 @@ package_binary() {
   mkdir -p "$package_root"
   cp "$binary" "$package_root/"
   # 守护启动脚本是正式入口：页面上的一键更新要靠它在进程退出后重新拉起，
-  # 直接跑 apagent 本体的话更新完就再也起不来了。按目标系统只带对应的那一份。
+  # 直接跑 jcyber 本体的话更新完就再也起不来了。按目标系统只带对应的那一份。
   if [ "$goos" = "windows" ]; then
     cp start.bat "$package_root/"
   else
@@ -202,12 +202,12 @@ build_target() {
     *) die "不支持的系统：$goos（支持 linux、darwin、windows）" ;;
   esac
 
-  binary_name="apagent"
-  [ "$goos" = "windows" ] && binary_name="apagent.exe"
+  binary_name="jcyber"
+  [ "$goos" = "windows" ] && binary_name="jcyber.exe"
   if [ -n "${JCYBER_OUTPUT:-}" ] && [ "$JCYBER_RELEASE" != "1" ]; then
     output="$JCYBER_OUTPUT"
   else
-    output="${JCYBER_OUTPUT_DIR}/apagent-${goos}-${goarch}/${binary_name}"
+    output="${JCYBER_OUTPUT_DIR}/jcyber-${goos}-${goarch}/${binary_name}"
   fi
   mkdir -p "$(dirname "$output")"
 
@@ -221,7 +221,7 @@ build_target() {
     -trimpath \
     -ldflags "-s -w -buildid= -X main.version=${JCYBER_BUILD_VERSION}" \
     -o "$output" \
-    ./cmd/apagent
+    ./cmd/jcyber
 
   compress_binary "$output" "$goos"
   if command -v file >/dev/null 2>&1; then file "$output"; fi

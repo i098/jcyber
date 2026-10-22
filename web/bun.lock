@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "apagent-web",
+      "name": "jcyber-web",
       "dependencies": {
         "@antv/g6": "^5.1.1",
         "@antv/graphin": "^3.0.5",

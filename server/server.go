@@ -31,7 +31,7 @@ import (
 	"normasdk/transcript"
 )
 
-// BuildVersion is the backend application version, injected from cmd/apagent at
+// BuildVersion is the backend application version, injected from cmd/jcyber at
 // startup (which in turn gets it from -ldflags "-X main.version=<tag>").
 // Defaults to "dev" for local builds. Exposed to the frontend via GET /api/health.
 var BuildVersion = "dev"
@@ -945,7 +945,7 @@ func (s *Server) Handler() http.Handler {
 // --- handlers ---
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"ok": true, "service": "apagent", "version": BuildVersion})
+	writeJSON(w, 200, map[string]any{"ok": true, "service": "jcyber", "version": BuildVersion})
 }
 
 func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
@@ -2138,7 +2138,7 @@ func (s *Server) findingsExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stage, err := os.MkdirTemp("", "apagent-finding-export-")
+	stage, err := os.MkdirTemp("", "jcyber-finding-export-")
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return

@@ -1,4 +1,4 @@
-// Command apagent runs the jcyber backend: the dual SQLite graph stores,
+// Command jcyber runs the jcyber backend: the dual SQLite graph stores,
 // the event-driven exploration engine, and the JSON HTTP API consumed by the
 // shadcn/ui frontend.
 package main

@@ -108,7 +108,7 @@ import type {
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("apagent_token");
+  return localStorage.getItem("jcyber_token");
 }
 
 export async function http<T>(path: string, init?: RequestInit): Promise<T> {
@@ -124,8 +124,8 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (r.status === 401) {
     if (typeof window !== "undefined") {
-      localStorage.removeItem("apagent_token");
-      document.cookie = "apagent_token=; path=/; max-age=0";
+      localStorage.removeItem("jcyber_token");
+      document.cookie = "jcyber_token=; path=/; max-age=0";
       window.location.href = "/login";
     }
     throw new Error("Unauthorized");

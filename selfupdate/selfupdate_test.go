@@ -17,15 +17,15 @@ func testPaths(t *testing.T) Paths {
 	dir := t.TempDir()
 	return Paths{
 		Dir:     dir,
-		Current: filepath.Join(dir, "apagent"),
-		New:     filepath.Join(dir, "apagent.new"),
-		Sum:     filepath.Join(dir, "apagent.new.sha256"),
-		Old:     filepath.Join(dir, "apagent.old"),
-		Marker:  filepath.Join(dir, "apagent.upgrade.json"),
+		Current: filepath.Join(dir, "jcyber"),
+		New:     filepath.Join(dir, "jcyber.new"),
+		Sum:     filepath.Join(dir, "jcyber.new.sha256"),
+		Old:     filepath.Join(dir, "jcyber.old"),
+		Marker:  filepath.Join(dir, "jcyber.upgrade.json"),
 	}
 }
 
-// fakeBin 写一个可执行的壳脚本冒充 apagent。smokeTest 只是用 -h 拉起它看退出码，
+// fakeBin 写一个可执行的壳脚本冒充 jcyber。smokeTest 只是用 -h 拉起它看退出码，
 // 脚本完全够用，而且比编译一个真二进制快得多。
 func fakeBin(t *testing.T, path, marker string, exitCode int) {
 	t.Helper()
@@ -42,7 +42,7 @@ func itoa(n int) string {
 	return string(rune('0' + n))
 }
 
-// stage 把 bin 布置成"已暂存待换装"的样子：写好 apagent.new 和它的校验和。
+// stage 把 bin 布置成"已暂存待换装"的样子：写好 jcyber.new 和它的校验和。
 func stage(t *testing.T, p Paths, marker string, exitCode int) {
 	t.Helper()
 	fakeBin(t, p.New, marker, exitCode)
@@ -162,13 +162,13 @@ func TestApplyStagedHappyPath(t *testing.T) {
 		t.Error("换装后状态应为 Pending")
 	}
 	if !strings.Contains(readAll(t, p.Current), "new") {
-		t.Error("apagent 应已被替换为新版本")
+		t.Error("jcyber 应已被替换为新版本")
 	}
 	if !strings.Contains(readAll(t, p.Old), "old") {
-		t.Error("旧版本应备份到 apagent.old")
+		t.Error("旧版本应备份到 jcyber.old")
 	}
 	if _, err := os.Stat(p.New); !os.IsNotExist(err) {
-		t.Error("换装后 apagent.new 应已消失")
+		t.Error("换装后 jcyber.new 应已消失")
 	}
 	if _, err := os.Stat(p.Sum); !os.IsNotExist(err) {
 		t.Error("换装后校验和文件应已清理")
@@ -293,18 +293,18 @@ func TestParseSums(t *testing.T) {
 		winSum   = "ABCDEF0000000000000000000000000000000000000000000000000000000000"
 	)
 	// sha256sum 输出是双空格分隔；shasum -a 256 在二进制模式下会给文件名加 *。
-	raw := linuxSum + "  apagent-0.3.8-linux-amd64.zip\n" +
-		winSum + " *apagent-0.3.8-windows-amd64.zip\n" +
+	raw := linuxSum + "  jcyber-0.3.8-linux-amd64.zip\n" +
+		winSum + " *jcyber-0.3.8-windows-amd64.zip\n" +
 		"\n" +
 		"garbage line\n" + // 恰好两个字段，但第一个不是摘要
-		"deadbeef  apagent-0.3.8-darwin-arm64.zip\n" // 摘要长度不对
+		"deadbeef  jcyber-0.3.8-darwin-arm64.zip\n" // 摘要长度不对
 
 	out := parseSums(raw)
-	if out["apagent-0.3.8-linux-amd64.zip"] != linuxSum {
+	if out["jcyber-0.3.8-linux-amd64.zip"] != linuxSum {
 		t.Errorf("linux 条目解析错误: %v", out)
 	}
 	// 摘要统一小写，比对时才不会因大小写误判为不匹配。
-	if got := out["apagent-0.3.8-windows-amd64.zip"]; got != strings.ToLower(winSum) {
+	if got := out["jcyber-0.3.8-windows-amd64.zip"]; got != strings.ToLower(winSum) {
 		t.Errorf("windows 条目错误（* 前缀应剥离、摘要应转小写）: %q", got)
 	}
 	if len(out) != 2 {
@@ -314,7 +314,7 @@ func TestParseSums(t *testing.T) {
 
 func TestExtractBinaryFindsNestedEntry(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("包内基名在 Windows 上是 apagent.exe，此用例按 Unix 命名构造")
+		t.Skip("包内基名在 Windows 上是 jcyber.exe，此用例按 Unix 命名构造")
 	}
 	dir := t.TempDir()
 	zipPath := filepath.Join(dir, "release.zip")
@@ -324,12 +324,12 @@ func TestExtractBinaryFindsNestedEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	zw := zip.NewWriter(f)
-	// 真实发布包的结构：apagent-<版本>-<os>-<arch>/apagent，外加若干干扰文件。
+	// 真实发布包的结构：jcyber-<版本>-<os>-<arch>/jcyber，外加若干干扰文件。
 	for name, body := range map[string]string{
-		"apagent-0.3.8-linux-amd64/README.md":           "readme",
-		"apagent-0.3.8-linux-amd64/skills/a.md":         "skill",
-		"apagent-0.3.8-linux-amd64/apagent":               "#!/bin/sh\nexit 0\n",
-		"apagent-0.3.8-linux-amd64/config.example.json": "{}",
+		"jcyber-0.3.8-linux-amd64/README.md":           "readme",
+		"jcyber-0.3.8-linux-amd64/skills/a.md":         "skill",
+		"jcyber-0.3.8-linux-amd64/jcyber":              "#!/bin/sh\nexit 0\n",
+		"jcyber-0.3.8-linux-amd64/config.example.json": "{}",
 	} {
 		w, err := zw.Create(name)
 		if err != nil {
@@ -349,7 +349,7 @@ func TestExtractBinaryFindsNestedEntry(t *testing.T) {
 		t.Fatalf("extractBinary: %v", err)
 	}
 	if got := readAll(t, dst); !strings.Contains(got, "exit 0") {
-		t.Errorf("解压出来的不是 apagent 可执行文件: %q", got)
+		t.Errorf("解压出来的不是 jcyber 可执行文件: %q", got)
 	}
 	info, err := os.Stat(dst)
 	if err != nil {
@@ -368,7 +368,7 @@ func TestExtractBinaryMissingEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	zw := zip.NewWriter(f)
-	w, _ := zw.Create("apagent-0.3.8-linux-amd64/README.md")
+	w, _ := zw.Create("jcyber-0.3.8-linux-amd64/README.md")
 	_, _ = w.Write([]byte("readme"))
 	_ = zw.Close()
 	f.Close()
@@ -381,7 +381,7 @@ func TestExtractBinaryMissingEntry(t *testing.T) {
 func TestCheckURLRejectsNonGitHub(t *testing.T) {
 	bad := []string{
 		"http://github.com/x",           // 非 HTTPS
-		"https://evil.com/apagent.zip",    // 域名不在白名单
+		"https://evil.com/jcyber.zip",   // 域名不在白名单
 		"https://github.com.evil.com/x", // 后缀伪装
 		"https://raw.githubusercontent.com.evil.com/x",
 	}
@@ -405,12 +405,12 @@ func TestCheckURLRejectsNonGitHub(t *testing.T) {
 }
 
 func TestAssetNameMatchesBuildScript(t *testing.T) {
-	// build.sh 的 package_binary 用的是 apagent-<版本>-<os>-<arch>.zip，且版本号
+	// build.sh 的 package_binary 用的是 jcyber-<版本>-<os>-<arch>.zip，且版本号
 	// 去掉了 v 前缀。这里对错一个字符，所有平台的一键更新都会找不到资产。
-	if got := AssetName("v0.3.8", "linux", "amd64"); got != "apagent-0.3.8-linux-amd64.zip" {
+	if got := AssetName("v0.3.8", "linux", "amd64"); got != "jcyber-0.3.8-linux-amd64.zip" {
 		t.Errorf("AssetName = %q", got)
 	}
-	if got := AssetName("0.3.8", "windows", "amd64"); got != "apagent-0.3.8-windows-amd64.zip" {
+	if got := AssetName("0.3.8", "windows", "amd64"); got != "jcyber-0.3.8-windows-amd64.zip" {
 		t.Errorf("AssetName = %q", got)
 	}
 }

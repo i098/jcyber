@@ -48,7 +48,6 @@ func EnsureTestDB() {
 		}
 	}
 	u.Path = "/" + TestDBName
-	os.Setenv("APAGENT_PG_DSN", u.String())
 	os.Setenv("JCYBER_PG_DSN", u.String())
 }
 
@@ -72,9 +71,5 @@ func ResetTestSchema() {
 	if err := conn.Ping(); err != nil {
 		return
 	}
-	// Kick lingering connections from the previous package's pool so the
-	// drop cannot block on them (packages serialize via the advisory lock,
-	// but their pooled connections may not have closed yet).
-	_, _ = conn.Exec(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`, TestDBName)
 	_, _ = conn.Exec(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`)
 }

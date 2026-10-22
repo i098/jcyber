@@ -2,25 +2,25 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-apagent}
+      POSTGRES_USER: ${POSTGRES_USER:-jcyber}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 设置 POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-apagent}
+      POSTGRES_DB: ${POSTGRES_DB:-jcyber}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-apagent} -d ${POSTGRES_DB:-apagent}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jcyber} -d ${POSTGRES_DB:-jcyber}"]
       interval: 5s
       timeout: 3s
       retries: 10
     restart: unless-stopped
 
-  apagent:
-    image: jcyber/local:${JCYBER_TAG:-latest}
+  jcyber:
+    image: ghcr.io/i098/jcyber:${JCYBER_TAG:-latest}
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      JCYBER_PG_DSN: postgres://${POSTGRES_USER:-apagent}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-apagent}?sslmode=disable
+      JCYBER_PG_DSN: postgres://${POSTGRES_USER:-jcyber}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-jcyber}?sslmode=disable
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       JCYBER_LLM_PROVIDER: ${JCYBER_LLM_PROVIDER:-}

@@ -12,6 +12,22 @@ permissions:
 jobs:
   go:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      JCYBER_PG_DSN: postgres://ci:ci@127.0.0.1:5432/ci?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -19,7 +35,8 @@ jobs:
           go-version: "1.26"
           cache: true
       - run: go vet ./...
-      - run: go test ./...
+      # Each package resets the shared test database; do not overlap package runs.
+      - run: go test -p 1 ./...
 
   web:
     runs-on: ubuntu-latest

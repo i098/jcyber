@@ -41,7 +41,7 @@ for i in $(seq 1 30); do docker exec jcyber-pg pg_isready -U jcyber >/dev/null 2
 
 cd web && bun install && bun run build:static && cd ..
 mkdir -p server/webui && rm -rf server/webui/dist && cp -r web/out server/webui/dist
-CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -tags embedui -o jcyber ./cmd/apagent
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -tags embedui -o jcyber ./cmd/jcyber
 ok "built ./jcyber"
 
 exec ./install.sh

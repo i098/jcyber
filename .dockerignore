@@ -3,7 +3,8 @@
 web/.next
 web/out
 server/webui/dist
-/apagent
+/jcyber
+/jcyber.exe
 data
 *.db
 transcripts

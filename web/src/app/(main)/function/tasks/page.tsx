@@ -257,8 +257,8 @@ function taskControlAction(status: TaskStatus): "pause" | "resume" | null {
 type TaskSortField = "id" | "created" | "duration" | "status";
 
 const TASK_SORT_FIELDS: readonly TaskSortField[] = ["id", "created", "duration", "status"];
-const TASK_SORT_PREFERENCE_KEY = "apagent_task_list_sort";
-const TASK_FILTER_PREFERENCE_KEY = "apagent_task_list_filters";
+const TASK_SORT_PREFERENCE_KEY = "jcyber_task_list_sort";
+const TASK_FILTER_PREFERENCE_KEY = "jcyber_task_list_filters";
 
 const TASK_STATUS_RANK = new Map(STATUS_OPTIONS.map((option, index) => [option.value, index]));
 
