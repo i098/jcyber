@@ -104,9 +104,9 @@ Return a concise factual summary of what happened and what was found.` },
     { role: "user", content: prompt },
   ];
   for (let turn = 0; turn < 8; turn++) {
+    // DeepSeek-only extras ride in the body object; the library type doesn't know them
     const r = await deep.chat.completions.create(
-      { model: MODEL_DEEP, messages, tools: toolSpecs() },
-      { body: { thinking: { type: "enabled" }, reasoning_effort: "high" } },
+      { model: MODEL_DEEP, messages, tools: toolSpecs(), thinking: { type: "enabled" }, reasoning_effort: "high" } as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
     );
     const m = r.choices[0]?.message;
     if (!m) return "(no reply)";
