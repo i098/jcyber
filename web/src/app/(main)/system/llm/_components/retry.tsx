@@ -56,7 +56,8 @@ export const RETRY_LAYERS = {
     where: "SDK · Before receiving HTTP 200",
     trigger:
       "Connection fails or HTTP 200 has not been received: network errors such as connection resets, read/write timeouts, and DNS failures, plus HTTP 408, 429, 500, 502, 503, and 504.",
-    skips: "Other status codes (400 / 401 / 403 / 404 / 413 / 422, etc.) are deterministic rejections. Retrying will fail again, so the error is propagated immediately.",
+    skips:
+      "Other status codes (400 / 401 / 403 / 404 / 413 / 422, etc.) are deterministic rejections. Retrying will fail again, so the error is propagated immediately.",
     desc: "Resends the same request unchanged. Once streaming starts (HTTP 200 received), interruptions are no longer handled by this layer.",
     attemptsLabel: "Retry Count",
     defAttempts: 3,
@@ -68,7 +69,8 @@ export const RETRY_LAYERS = {
     where: "SDK · OpenAI format only",
     trigger:
       "HTTP 200 with a normal stop finish_reason, but no content blocks in the entire response. Empty gateway frames, dropped reasoning fields, and sampling glitches can cause this.",
-    skips: "Empty output caused by max_tokens truncation is excluded (increase the output limit instead; resending would hit the same limit).",
+    skips:
+      "Empty output caused by max_tokens truncation is excluded (increase the output limit instead; resending would hit the same limit).",
     desc: "Resends the entire prompt, which is expensive for long contexts. Keep the retry count low.",
     attemptsLabel: "Retry Count",
     defAttempts: 2,
@@ -105,7 +107,8 @@ export const RETRY_LAYERS = {
     where: "Application · Process-wide, shared globally",
     trigger:
       "Earlier layers could not recover: the worker ends with model_error because all inner retries are exhausted, or the stream breaks after output delivery begins (replay is unsafe, so the entire intent must restart).",
-    skips: "Exhausted quota is handled by configuration rotation, not reruns here. Pausing, terminating, or wrapping up a task takes precedence immediately without waiting for backoff.",
+    skips:
+      "Exhausted quota is handled by configuration rotation, not reruns here. Pausing, terminating, or wrapping up a task takes precedence immediately without waiting for backoff.",
     desc: "Reruns the entire intent from the beginning. This is the outermost layer, so each rerun multiplies the attempts of the inner layers.",
     attemptsLabel: "Rerun Count",
     defAttempts: 2,
@@ -242,8 +245,10 @@ export function ProfileRetryFields({
       <div className="grid gap-0.5">
         <Label className="text-sm">Retry Overrides</Label>
         <p className="text-muted-foreground text-xs">
-          Applies only to this configuration, overriding the global defaults in "Retries and Backoff". Blank = inherit global settings; set attempts to -1 to disable retries for that layer;
-          setting an interval replaces exponential backoff with a fixed interval. Circuit breaking and intent reruns are process-wide and can only be changed on the global settings page.
+          Applies only to this configuration, overriding the global defaults in "Retries and Backoff". Blank = inherit
+          global settings; set attempts to -1 to disable retries for that layer; setting an interval replaces
+          exponential backoff with a fixed interval. Circuit breaking and intent reruns are process-wide and can only be
+          changed on the global settings page.
         </p>
       </div>
       {(["connect", "empty", "stream"] as const).map((k) => (
@@ -312,11 +317,14 @@ export function RetryPolicyPanel() {
     <div className="grid gap-4">
       <div className="rounded-lg border bg-muted/30 p-3 text-muted-foreground text-xs leading-relaxed">
         A failed model call passes through five retry layers, from inner to outer:
-        <span className="text-foreground"> Connection → Empty Response → Same-provider Safe Window → Rotation Circuit Breaker → Intent Rerun</span>
+        <span className="text-foreground">
+          {" "}
+          Connection → Empty Response → Same-provider Safe Window → Rotation Circuit Breaker → Intent Rerun
+        </span>
         . Outer layers run only after inner layers are exhausted, so attempt counts are
-        <span className="text-foreground"> multiplied</span>
-        . Maximizing every layer can turn one transient failure into dozens of requests.
-        Leave all fields blank to use the current defaults and preserve existing behavior. The first three layers can be overridden per model configuration.
+        <span className="text-foreground"> multiplied</span>. Maximizing every layer can turn one transient failure into
+        dozens of requests. Leave all fields blank to use the current defaults and preserve existing behavior. The first
+        three layers can be overridden per model configuration.
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

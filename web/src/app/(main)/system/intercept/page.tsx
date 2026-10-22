@@ -1,55 +1,23 @@
 "use client";
 
 import * as React from "react";
+
+import { BotIcon, ListFilterIcon, PencilIcon, PlusIcon, ShieldAlertIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
-import {
-  BotIcon,
-  ListFilterIcon,
-  PencilIcon,
-  PlusIcon,
-  ShieldAlertIcon,
-  Trash2Icon,
-} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Card, CardContent } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import type {
   InterceptAction,
@@ -63,8 +31,8 @@ import type {
 
 // fmtTokens 把 token 数压成紧凑写法(1.2k / 3.4M),用于审批用量统计。
 function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1000) return (n / 1000).toFixed(1) + "k";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
 }
 
@@ -73,7 +41,7 @@ function JudgeStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border bg-muted/20 px-3 py-2">
       <div className="text-[10px] text-muted-foreground">{label}</div>
-      <div className="mt-0.5 text-lg font-semibold tabular-nums">{value}</div>
+      <div className="mt-0.5 font-semibold text-lg tabular-nums">{value}</div>
     </div>
   );
 }
@@ -109,36 +77,37 @@ function sdkTool(key: string, description: string): Tool {
 }
 
 const SDK_EXEC: Tool[] = [
-  sdkTool("Bash",        "Run commands in a shell"),
-  sdkTool("WebFetch",    "Send HTTP/HTTPS requests (with proxy support)"),
-  sdkTool("web_search",  "Search the web"),
-  sdkTool("shell_open",  "Open a persistent interactive PTY session"),
-  sdkTool("shell_send",  "Send input to an interactive session"),
-  sdkTool("shell_read",  "Read output from an interactive session"),
+  sdkTool("Bash", "Run commands in a shell"),
+  sdkTool("WebFetch", "Send HTTP/HTTPS requests (with proxy support)"),
+  sdkTool("web_search", "Search the web"),
+  sdkTool("shell_open", "Open a persistent interactive PTY session"),
+  sdkTool("shell_send", "Send input to an interactive session"),
+  sdkTool("shell_read", "Read output from an interactive session"),
   sdkTool("shell_close", "Close an interactive session"),
-  sdkTool("shell_list",  "List all interactive sessions"),
+  sdkTool("shell_list", "List all interactive sessions"),
 ];
 
 const SDK_WRITE: Tool[] = [
-  sdkTool("Write",     "Write a file"),
-  sdkTool("Edit",      "Edit a file (exact replacement)"),
+  sdkTool("Write", "Write a file"),
+  sdkTool("Edit", "Edit a file (exact replacement)"),
   sdkTool("MultiEdit", "Batch edit files"),
 ];
 
 const SDK_KEYS = new Set([...SDK_EXEC, ...SDK_WRITE].map((t) => t.key));
 
 function groupTools(dbTools: Tool[]) {
-  const sys: Tool[] = [], custom: Tool[] = [];
+  const sys: Tool[] = [],
+    custom: Tool[] = [];
   for (const t of dbTools) {
     if (SDK_KEYS.has(t.key)) continue; // already covered by hardcoded groups
     if (t.system) sys.push(t);
-    else          custom.push(t);
+    else custom.push(t);
   }
   return [
-    { label: "Execution",      tools: SDK_EXEC },
+    { label: "Execution", tools: SDK_EXEC },
     { label: "Write/Edit", tools: SDK_WRITE },
-    { label: "System Tools",    tools: sys },
-    { label: "Custom Tools",  tools: custom },
+    { label: "System Tools", tools: sys },
+    { label: "Custom Tools", tools: custom },
   ].filter((g) => g.tools.length > 0);
 }
 
@@ -176,16 +145,18 @@ const defaultForm = (): RuleForm => ({
 
 function ActionBadge({ action }: { action: InterceptAction }) {
   if (action === "allow") return <Badge variant="secondary">Allow</Badge>;
-  if (action === "deny")  return <Badge variant="destructive">Deny</Badge>;
-  return <Badge variant="outline" className="border-amber-400 text-amber-600">Request Approval</Badge>;
+  if (action === "deny") return <Badge variant="destructive">Deny</Badge>;
+  return (
+    <Badge variant="outline" className="border-amber-400 text-amber-600">
+      Request Approval
+    </Badge>
+  );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        {label}
-      </Label>
+      <Label className="font-medium text-muted-foreground text-xs uppercase tracking-wide">{label}</Label>
       {children}
     </div>
   );
@@ -228,7 +199,7 @@ function JudgeCard() {
       setCfg(j);
       setProfiles(ps);
     } catch (e) {
-      toast.error("Failed to load model fallback settings: " + (e as Error).message);
+      toast.error(`Failed to load model fallback settings: ${(e as Error).message}`);
     } finally {
       setLoading(false);
     }
@@ -254,7 +225,7 @@ function JudgeCard() {
       toast.success("Model fallback settings saved");
       await load(); // 回读:提示词若清空则回填内置模板
     } catch (e) {
-      toast.error("Save failed: " + (e as Error).message);
+      toast.error(`Save failed: ${(e as Error).message}`);
     } finally {
       setSaving(false);
     }
@@ -269,7 +240,7 @@ function JudgeCard() {
       setCfg(j);
       toast.success("Built-in default template restored");
     } catch (e) {
-      toast.error("Restore failed: " + (e as Error).message);
+      toast.error(`Restore failed: ${(e as Error).message}`);
     } finally {
       setSaving(false);
     }
@@ -286,14 +257,16 @@ function JudgeCard() {
         <div className="flex items-center gap-2.5">
           <BotIcon className={`h-5 w-5 shrink-0 ${cfg.enabled ? "text-violet-600" : "text-muted-foreground"}`} />
           <div>
-            <p className="text-sm font-semibold leading-tight">Model Fallback Approval</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Only commands within the <span className="font-medium text-foreground">Interception Scope</span> that <span className="font-medium text-foreground">match no interception rule</span> are evaluated by the model (allow / request human approval / block)
+            <p className="font-semibold text-sm leading-tight">Model Fallback Approval</p>
+            <p className="mt-0.5 text-muted-foreground text-xs">
+              Only commands within the <span className="font-medium text-foreground">Interception Scope</span> that{" "}
+              <span className="font-medium text-foreground">match no interception rule</span> are evaluated by the model
+              (allow / request human approval / block)
             </p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span className="text-xs text-muted-foreground">{cfg.enabled ? "Enabled" : "Disabled"}</span>
+          <span className="text-muted-foreground text-xs">{cfg.enabled ? "Enabled" : "Disabled"}</span>
           <Switch checked={cfg.enabled} disabled={loading} onCheckedChange={(v) => patch({ enabled: v })} />
         </div>
       </div>
@@ -304,9 +277,10 @@ function JudgeCard() {
           <CardContent className="p-4">
             <div className="mb-3 flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium">Approval Token Usage</p>
-                <p className="text-xs text-muted-foreground">
-                  Cumulative model fallback approval usage, tracked separately (worker=judge) from model profile statistics
+                <p className="font-medium text-sm">Approval Token Usage</p>
+                <p className="text-muted-foreground text-xs">
+                  Cumulative model fallback approval usage, tracked separately (worker=judge) from model profile
+                  statistics
                 </p>
               </div>
               <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={loadUsage}>
@@ -322,7 +296,7 @@ function JudgeCard() {
             </div>
             {usage.daily.length > 0 && (
               <div className="mt-4">
-                <p className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground">
+                <p className="mb-2 text-[10px] text-muted-foreground uppercase tracking-wider">
                   Daily usage over the last 30 days (input + output)
                 </p>
                 <JudgeSparkbars daily={usage.daily} />
@@ -339,8 +313,10 @@ function JudgeCard() {
             <CardContent className="flex h-full flex-col gap-2 p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium">Approval Prompt</p>
-                  <p className="text-xs text-muted-foreground">The model uses this editable prompt to decide ALLOW / ASK / DENY</p>
+                  <p className="font-medium text-sm">Approval Prompt</p>
+                  <p className="text-muted-foreground text-xs">
+                    The model uses this editable prompt to decide ALLOW / ASK / DENY
+                  </p>
                 </div>
                 <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={restorePrompt} disabled={saving}>
                   Restore Default Template
@@ -361,10 +337,14 @@ function JudgeCard() {
           <Card className="lg:col-span-2">
             <CardContent className="space-y-5 p-4">
               <div className="space-y-4">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Evaluation Model & Policy</p>
+                <p className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wider">
+                  Evaluation Model & Policy
+                </p>
                 <Field label="Approval Model">
                   <Select value={String(cfg.profile_id || 0)} onValueChange={(v) => patch({ profile_id: Number(v) })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={FOLLOW_ACTIVE}>Use Active Profile</SelectItem>
                       {profiles.map((p) => (
@@ -387,8 +367,13 @@ function JudgeCard() {
                   />
                 </Field>
                 <Field label="On Model Failure (error / timeout / invalid response)">
-                  <Select value={cfg.fail_action} onValueChange={(v) => patch({ fail_action: v as JudgeConfig["fail_action"] })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                  <Select
+                    value={cfg.fail_action}
+                    onValueChange={(v) => patch({ fail_action: v as JudgeConfig["fail_action"] })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="allow">Allow</SelectItem>
                       <SelectItem value="ask">Request Human Approval</SelectItem>
@@ -401,7 +386,9 @@ function JudgeCard() {
               <Separator />
 
               <div className="space-y-4">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Human Approval (when requested by the model)</p>
+                <p className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wider">
+                  Human Approval (when requested by the model)
+                </p>
                 <Field label="Approval Wait Timeout (seconds)">
                   <Input
                     type="number"
@@ -414,8 +401,13 @@ function JudgeCard() {
                   />
                 </Field>
                 <Field label="Default Action on Timeout">
-                  <Select value={cfg.ask_timeout_action} onValueChange={(v) => patch({ ask_timeout_action: v as JudgeConfig["ask_timeout_action"] })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                  <Select
+                    value={cfg.ask_timeout_action}
+                    onValueChange={(v) => patch({ ask_timeout_action: v as JudgeConfig["ask_timeout_action"] })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="deny">Block</SelectItem>
                       <SelectItem value="allow">Allow</SelectItem>
@@ -440,22 +432,22 @@ function JudgeCard() {
 // ---- page ----
 
 export default function InterceptPage() {
-  const [rules, setRules]     = React.useState<InterceptRule[]>([]);
+  const [rules, setRules] = React.useState<InterceptRule[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [open, setOpen]       = React.useState(false);
+  const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<InterceptRule | null>(null);
-  const [form, setForm]       = React.useState<RuleForm>(defaultForm());
-  const [saving, setSaving]   = React.useState(false);
+  const [form, setForm] = React.useState<RuleForm>(defaultForm());
+  const [saving, setSaving] = React.useState(false);
   const [regexErr, setRegexErr] = React.useState("");
   const [regexWarn, setRegexWarn] = React.useState(false); // true = JS 无法解析但可能是合法 Go 语法
 
   // ---- tool scope dialog ----
-  const [scopeOpen, setScopeOpen]       = React.useState(false);
-  const [allTools, setAllTools]         = React.useState<Tool[]>([]);
+  const [scopeOpen, setScopeOpen] = React.useState(false);
+  const [allTools, setAllTools] = React.useState<Tool[]>([]);
   const [enabledTools, setEnabledTools] = React.useState<Set<string>>(new Set());
   const [scopeLoading, setScopeLoading] = React.useState(false);
-  const [scopeSaving, setScopeSaving]   = React.useState(false);
-  const [scopeTools, setScopeTools]     = React.useState<string[]>([]); // 页头信息条:当前进入拦截的工具
+  const [scopeSaving, setScopeSaving] = React.useState(false);
+  const [scopeTools, setScopeTools] = React.useState<string[]>([]); // 页头信息条:当前进入拦截的工具
 
   // ---- data ----
 
@@ -479,10 +471,17 @@ export default function InterceptPage() {
     }
   }, []);
 
-  React.useEffect(() => { load(); loadScope(); }, [load, loadScope]);
+  React.useEffect(() => {
+    load();
+    loadScope();
+  }, [load, loadScope]);
 
   React.useEffect(() => {
-    if (form.match_type !== "regex" || !form.pattern) { setRegexErr(""); setRegexWarn(false); return; }
+    if (form.match_type !== "regex" || !form.pattern) {
+      setRegexErr("");
+      setRegexWarn(false);
+      return;
+    }
     try {
       new RegExp(form.pattern);
       setRegexErr("");
@@ -497,7 +496,9 @@ export default function InterceptPage() {
 
   // ---- rule handlers ----
 
-  function set(patch: Partial<RuleForm>) { setForm(f => ({ ...f, ...patch })); }
+  function set(patch: Partial<RuleForm>) {
+    setForm((f) => ({ ...f, ...patch }));
+  }
 
   function openNew() {
     setEditing(null);
@@ -509,10 +510,16 @@ export default function InterceptPage() {
   function openEdit(rule: InterceptRule) {
     setEditing(rule);
     setForm({
-      name: rule.name, enabled: rule.enabled, priority: rule.priority,
-      match_target: rule.match_target, match_type: rule.match_type,
-      pattern: rule.pattern, action: rule.action, message: rule.message,
-      timeout_enabled: rule.timeout_enabled, timeout_seconds: rule.timeout_seconds,
+      name: rule.name,
+      enabled: rule.enabled,
+      priority: rule.priority,
+      match_target: rule.match_target,
+      match_type: rule.match_type,
+      pattern: rule.pattern,
+      action: rule.action,
+      message: rule.message,
+      timeout_enabled: rule.timeout_enabled,
+      timeout_seconds: rule.timeout_seconds,
       timeout_action: rule.timeout_action,
     });
     setRegexErr("");
@@ -520,9 +527,18 @@ export default function InterceptPage() {
   }
 
   async function handleSave() {
-    if (!form.name.trim())    { toast.error("Name cannot be empty"); return; }
-    if (!form.pattern.trim()) { toast.error("Pattern cannot be empty"); return; }
-    if (regexErr)             { toast.error("Invalid regular expression syntax"); return; }
+    if (!form.name.trim()) {
+      toast.error("Name cannot be empty");
+      return;
+    }
+    if (!form.pattern.trim()) {
+      toast.error("Pattern cannot be empty");
+      return;
+    }
+    if (regexErr) {
+      toast.error("Invalid regular expression syntax");
+      return;
+    }
     setSaving(true);
     try {
       if (editing) {
@@ -570,16 +586,17 @@ export default function InterceptPage() {
       setAllTools(tools);
       setEnabledTools(new Set(cfg.enabled_tools));
     } catch (e) {
-      toast.error("Loading failed: " + (e as Error).message);
+      toast.error(`Loading failed: ${(e as Error).message}`);
     } finally {
       setScopeLoading(false);
     }
   }
 
   function toggleTool(key: string, val: boolean) {
-    setEnabledTools(prev => {
+    setEnabledTools((prev) => {
       const next = new Set(prev);
-      if (val) next.add(key); else next.delete(key);
+      if (val) next.add(key);
+      else next.delete(key);
       return next;
     });
   }
@@ -592,7 +609,7 @@ export default function InterceptPage() {
       setScopeTools([...enabledTools]);
       setScopeOpen(false);
     } catch (e) {
-      toast.error("Save failed: " + (e as Error).message);
+      toast.error(`Save failed: ${(e as Error).message}`);
     } finally {
       setScopeSaving(false);
     }
@@ -604,13 +621,12 @@ export default function InterceptPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-5 p-6">
-
       {/* ---- header ---- */}
       <div className="flex items-center gap-2.5">
         <ShieldAlertIcon className="h-5 w-5 shrink-0" />
         <div>
-          <h1 className="text-lg font-semibold leading-tight">Command Interception</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
+          <h1 className="font-semibold text-lg leading-tight">Command Interception</h1>
+          <p className="mt-0.5 text-muted-foreground text-sm">
             Match interception rules before running tools; unmatched commands can be evaluated by the fallback model
           </p>
         </div>
@@ -619,9 +635,7 @@ export default function InterceptPage() {
       {/* ---- 拦截范围信息条（规则匹配与模型兜底共用：不在范围内的工具两者都不介入）---- */}
       <div
         className={`flex items-center justify-between gap-3 rounded-lg border px-4 py-2.5 ${
-          scopeTools.length === 0
-            ? "border-amber-400/60 bg-amber-50/50 dark:bg-amber-950/20"
-            : "bg-muted/40"
+          scopeTools.length === 0 ? "border-amber-400/60 bg-amber-50/50 dark:bg-amber-950/20" : "bg-muted/40"
         }`}
       >
         <div className="flex min-w-0 items-center gap-2 text-sm">
@@ -633,7 +647,9 @@ export default function InterceptPage() {
             </span>
           ) : (
             <>
-              <Badge variant="secondary" className="shrink-0">{scopeTools.length} tools</Badge>
+              <Badge variant="secondary" className="shrink-0">
+                {scopeTools.length} tools
+              </Badge>
               <span className="truncate text-muted-foreground" title={scopeTools.join(", ")}>
                 {scopeTools.join(", ")}
               </span>
@@ -660,7 +676,7 @@ export default function InterceptPage() {
         {/* ---- tab: 拦截规则 ---- */}
         <TabsContent value="rules" className="mt-4 flex flex-col gap-4">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">
+            <p className="text-muted-foreground text-xs">
               Rules are matched by priority (highest number first); the first matching rule takes effect
             </p>
             <Button onClick={openNew} size="sm" className="shrink-0">
@@ -671,84 +687,79 @@ export default function InterceptPage() {
 
           <Card>
             <CardContent className="p-0">
-          {loading ? (
-            <p className="p-6 text-sm text-muted-foreground">Loading...</p>
-          ) : rules.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-              <ShieldAlertIcon className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-sm text-muted-foreground">No rules yet</p>
-              <Button size="sm" variant="outline" onClick={openNew}>
-                <PlusIcon className="h-4 w-4" />
-                Create First Rule
-              </Button>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="w-[72px]">Priority</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead className="w-[90px]">Target</TableHead>
-                  <TableHead className="w-[80px]">Type</TableHead>
-                  <TableHead>Pattern</TableHead>
-                  <TableHead className="w-[72px]">Policy</TableHead>
-                  <TableHead className="w-[64px] text-center">Enabled</TableHead>
-                  <TableHead className="w-[80px]" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rules.map((rule) => (
-                  <TableRow key={rule.id} className={!rule.enabled ? "opacity-40" : ""}>
-                    <TableCell>
-                      <span className="font-mono text-xs tabular-nums">{rule.priority}</span>
-                    </TableCell>
-                    <TableCell className="font-medium text-sm">{rule.name}</TableCell>
-                    <TableCell>
-                      <span className="text-xs text-muted-foreground">
-                        {rule.match_target === "tool_name" ? "Tool Name" : "Input"}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-xs text-muted-foreground">
-                        {rule.match_type === "regex" ? "Regex" : "String"}
-                      </span>
-                    </TableCell>
-                    <TableCell className="max-w-[220px]">
-                      <code className="block truncate rounded bg-muted px-1.5 py-0.5 text-xs font-mono">
-                        {rule.pattern}
-                      </code>
-                    </TableCell>
-                    <TableCell>
-                      <ActionBadge action={rule.action} />
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Switch
-                        checked={rule.enabled}
-                        onCheckedChange={() => handleToggle(rule)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center justify-end gap-0.5">
-                        <Button
-                          size="icon" variant="ghost" className="h-7 w-7"
-                          onClick={() => openEdit(rule)}
-                        >
-                          <PencilIcon className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          size="icon" variant="ghost"
-                          className="h-7 w-7 text-destructive hover:text-destructive"
-                          onClick={() => handleDelete(rule.id)}
-                        >
-                          <Trash2Icon className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+              {loading ? (
+                <p className="p-6 text-muted-foreground text-sm">Loading...</p>
+              ) : rules.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+                  <ShieldAlertIcon className="h-8 w-8 text-muted-foreground/40" />
+                  <p className="text-muted-foreground text-sm">No rules yet</p>
+                  <Button size="sm" variant="outline" onClick={openNew}>
+                    <PlusIcon className="h-4 w-4" />
+                    Create First Rule
+                  </Button>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="w-[72px]">Priority</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead className="w-[90px]">Target</TableHead>
+                      <TableHead className="w-[80px]">Type</TableHead>
+                      <TableHead>Pattern</TableHead>
+                      <TableHead className="w-[72px]">Policy</TableHead>
+                      <TableHead className="w-[64px] text-center">Enabled</TableHead>
+                      <TableHead className="w-[80px]" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rules.map((rule) => (
+                      <TableRow key={rule.id} className={!rule.enabled ? "opacity-40" : ""}>
+                        <TableCell>
+                          <span className="font-mono text-xs tabular-nums">{rule.priority}</span>
+                        </TableCell>
+                        <TableCell className="font-medium text-sm">{rule.name}</TableCell>
+                        <TableCell>
+                          <span className="text-muted-foreground text-xs">
+                            {rule.match_target === "tool_name" ? "Tool Name" : "Input"}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-muted-foreground text-xs">
+                            {rule.match_type === "regex" ? "Regex" : "String"}
+                          </span>
+                        </TableCell>
+                        <TableCell className="max-w-[220px]">
+                          <code className="block truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                            {rule.pattern}
+                          </code>
+                        </TableCell>
+                        <TableCell>
+                          <ActionBadge action={rule.action} />
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Switch checked={rule.enabled} onCheckedChange={() => handleToggle(rule)} />
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-0.5">
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(rule)}>
+                              <PencilIcon className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-destructive hover:text-destructive"
+                              onClick={() => handleDelete(rule.id)}
+                            >
+                              <Trash2Icon className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -769,7 +780,7 @@ export default function InterceptPage() {
             </SheetDescription>
           </SheetHeader>
 
-          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
             <Field label="Name">
               <Input
                 placeholder="Enter a rule name"
@@ -782,7 +793,7 @@ export default function InterceptPage() {
               <Input
                 type="number"
                 value={form.priority}
-                onChange={(e) => set({ priority: parseInt(e.target.value) || 0 })}
+                onChange={(e) => set({ priority: parseInt(e.target.value, 10) || 0 })}
               />
             </Field>
 
@@ -793,7 +804,9 @@ export default function InterceptPage() {
                 value={form.match_target}
                 onValueChange={(v) => set({ match_target: v as RuleForm["match_target"] })}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="tool_name">Tool Name (tool_name)</SelectItem>
                   <SelectItem value="tool_input">Input (tool_input JSON)</SelectItem>
@@ -802,11 +815,10 @@ export default function InterceptPage() {
             </Field>
 
             <Field label="Match Type">
-              <Select
-                value={form.match_type}
-                onValueChange={(v) => set({ match_type: v as RuleForm["match_type"] })}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select value={form.match_type} onValueChange={(v) => set({ match_type: v as RuleForm["match_type"] })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="string">Contains String</SelectItem>
                   <SelectItem value="regex">Regular Expression</SelectItem>
@@ -821,22 +833,22 @@ export default function InterceptPage() {
                 onChange={(e) => set({ pattern: e.target.value })}
                 className={regexErr ? "border-destructive focus-visible:ring-destructive" : ""}
               />
-              {regexErr && (
-                <p className="text-xs text-destructive mt-1">{regexErr}</p>
-              )}
+              {regexErr && <p className="mt-1 text-destructive text-xs">{regexErr}</p>}
               {regexWarn && (
-                <p className="text-xs text-amber-600 mt-1">Contains Go RE2 extensions (such as <code className="font-mono">(?i)</code>) that cannot be previewed in the browser. The server will validate them on submission</p>
+                <p className="mt-1 text-amber-600 text-xs">
+                  Contains Go RE2 extensions (such as <code className="font-mono">(?i)</code>) that cannot be previewed
+                  in the browser. The server will validate them on submission
+                </p>
               )}
             </Field>
 
             <Separator />
 
             <Field label="Interception Policy">
-              <Select
-                value={form.action}
-                onValueChange={(v) => set({ action: v as InterceptAction })}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select value={form.action} onValueChange={(v) => set({ action: v as InterceptAction })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="allow">Allow - proceed directly and skip remaining rules</SelectItem>
                   <SelectItem value="deny">Deny - block and return a rejection message to the model</SelectItem>
@@ -846,7 +858,11 @@ export default function InterceptPage() {
             </Field>
 
             {form.action !== "allow" && (
-              <Field label={form.action === "deny" ? "Rejection Message (returned to the model)" : "Approval Note (optional)"}>
+              <Field
+                label={
+                  form.action === "deny" ? "Rejection Message (returned to the model)" : "Approval Note (optional)"
+                }
+              >
                 <Textarea
                   placeholder={form.action === "deny" ? "Operation blocked by security policy" : ""}
                   value={form.message}
@@ -862,13 +878,12 @@ export default function InterceptPage() {
                 <Separator />
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium">Enable Approval Timeout</p>
-                    <p className="text-xs text-muted-foreground">Take action automatically on timeout instead of waiting</p>
+                    <p className="font-medium text-sm">Enable Approval Timeout</p>
+                    <p className="text-muted-foreground text-xs">
+                      Take action automatically on timeout instead of waiting
+                    </p>
                   </div>
-                  <Switch
-                    checked={form.timeout_enabled}
-                    onCheckedChange={(v) => set({ timeout_enabled: v })}
-                  />
+                  <Switch checked={form.timeout_enabled} onCheckedChange={(v) => set({ timeout_enabled: v })} />
                 </div>
                 {form.timeout_enabled && (
                   <div className="flex items-end gap-3">
@@ -889,7 +904,9 @@ export default function InterceptPage() {
                         value={form.timeout_action}
                         onValueChange={(v) => set({ timeout_action: v as "deny" | "allow" })}
                       >
-                        <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="w-32">
+                          <SelectValue />
+                        </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="deny">Automatically Deny</SelectItem>
                           <SelectItem value="allow">Automatically Allow</SelectItem>
@@ -904,17 +921,17 @@ export default function InterceptPage() {
             <Separator />
 
             <div className="flex items-center gap-3">
-              <Switch
-                id="rule-enabled"
-                checked={form.enabled}
-                onCheckedChange={(v) => set({ enabled: v })}
-              />
-              <Label htmlFor="rule-enabled" className="cursor-pointer">Enable This Rule</Label>
+              <Switch id="rule-enabled" checked={form.enabled} onCheckedChange={(v) => set({ enabled: v })} />
+              <Label htmlFor="rule-enabled" className="cursor-pointer">
+                Enable This Rule
+              </Label>
             </div>
           </div>
 
-          <SheetFooter className="border-t px-6 py-4 flex-row justify-end gap-2">
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <SheetFooter className="flex-row justify-end gap-2 border-t px-6 py-4">
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
             <Button onClick={handleSave} disabled={saving || !!regexErr}>
               {saving ? "Saving..." : "Save"}
             </Button>
@@ -924,7 +941,10 @@ export default function InterceptPage() {
 
       {/* ---- scope dialog ---- */}
       <Dialog open={scopeOpen} onOpenChange={setScopeOpen}>
-        <DialogContent className="sm:max-w-lg flex flex-col overflow-hidden p-0 gap-0" style={{ maxHeight: "min(80vh, 560px)" }}>
+        <DialogContent
+          className="flex flex-col gap-0 overflow-hidden p-0 sm:max-w-lg"
+          style={{ maxHeight: "min(80vh, 560px)" }}
+        >
           <DialogHeader className="shrink-0 border-b px-6 py-4">
             <DialogTitle className="flex items-center gap-2">
               <ListFilterIcon className="h-4 w-4" />
@@ -935,14 +955,14 @@ export default function InterceptPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-5">
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-4">
             {scopeLoading ? (
-              <p className="text-sm text-muted-foreground py-4">Loading...</p>
+              <p className="py-4 text-muted-foreground text-sm">Loading...</p>
             ) : (
               toolGroups.map((group, gi) => (
                 <div key={group.label}>
                   {gi > 0 && <Separator className="mb-5" />}
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  <p className="mb-2 font-semibold text-[10px] text-muted-foreground uppercase tracking-wider">
                     {group.label}
                   </p>
                   <div className="space-y-0.5">
@@ -953,15 +973,17 @@ export default function InterceptPage() {
                           checked={enabledTools.has(t.key)}
                           onCheckedChange={(v) => toggleTool(t.key, v)}
                         />
-                        <label htmlFor={`scope-${t.key}`} className="flex-1 min-w-0 cursor-pointer">
+                        <label htmlFor={`scope-${t.key}`} className="min-w-0 flex-1 cursor-pointer">
                           <div className="flex items-center gap-1.5">
                             <span className="font-mono text-sm">{t.key}</span>
-                            {(t.kind && t.kind !== "builtin") && (
-                              <Badge variant="outline" className="px-1 py-0 text-[10px]">{t.kind}</Badge>
+                            {t.kind && t.kind !== "builtin" && (
+                              <Badge variant="outline" className="px-1 py-0 text-[10px]">
+                                {t.kind}
+                              </Badge>
                             )}
                           </div>
                           {t.description && (
-                            <p className="text-[11px] text-muted-foreground line-clamp-1">{t.description}</p>
+                            <p className="line-clamp-1 text-[11px] text-muted-foreground">{t.description}</p>
                           )}
                         </label>
                       </div>
@@ -972,8 +994,10 @@ export default function InterceptPage() {
             )}
           </div>
 
-          <div className="shrink-0 border-t px-6 py-3 flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => setScopeOpen(false)}>Cancel</Button>
+          <div className="flex shrink-0 justify-end gap-2 border-t px-6 py-3">
+            <Button variant="outline" size="sm" onClick={() => setScopeOpen(false)}>
+              Cancel
+            </Button>
             <Button size="sm" onClick={saveScope} disabled={scopeSaving || scopeLoading}>
               {scopeSaving ? "Saving..." : "Save"}
             </Button>

@@ -78,7 +78,7 @@ function MethodBadge({ method }: { method: string }) {
   return (
     <span
       className={cn(
-        "inline-block rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none",
+        "inline-block rounded px-1.5 py-0.5 font-mono font-semibold text-[10px] leading-none",
         METHOD_COLOR[m] ?? "bg-muted text-muted-foreground",
       )}
     >
@@ -196,7 +196,7 @@ export default function AssetsPage() {
       setSelected(new Set());
       refresh();
     } catch (e) {
-      toast.error("Deletion failed: " + String((e as Error)?.message ?? e));
+      toast.error(`Deletion failed: ${String((e as Error)?.message ?? e)}`);
     } finally {
       setDeleting(false);
       setDeleteOpen(false);
@@ -215,7 +215,7 @@ export default function AssetsPage() {
       toast.success(msg);
       refresh();
     } catch (e) {
-      toast.error("Deletion failed: " + String((e as Error)?.message ?? e));
+      toast.error(`Deletion failed: ${String((e as Error)?.message ?? e)}`);
     } finally {
       setCompanyDeleting(false);
       setCompanyDeleteTarget(null);
@@ -316,10 +316,10 @@ export default function AssetsPage() {
     <div className="flex h-[calc(100vh-6rem)] min-h-0 flex-col gap-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Assets</h1>
+          <h1 className="font-semibold text-xl tracking-tight">Assets</h1>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-muted-foreground">
+          <span className="text-muted-foreground text-sm">
             <span className="tabular-nums">{totalAssets}</span> Assets total
           </span>
           {selected.size > 0 && (
@@ -341,7 +341,7 @@ export default function AssetsPage() {
               <TabsTrigger key={t.key} value={t.key}>
                 <t.icon className="size-3.5" />
                 {t.label}
-                <span className="ml-1 tabular-nums text-muted-foreground">{tabCounts[t.key]}</span>
+                <span className="ml-1 text-muted-foreground tabular-nums">{tabCounts[t.key]}</span>
               </TabsTrigger>
             ))}
           </TabsList>
@@ -369,7 +369,7 @@ export default function AssetsPage() {
                           <span className="font-medium">{c.name}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-right tabular-nums text-sm">{c.asset_count}</TableCell>
+                      <TableCell className="text-right text-sm tabular-nums">{c.asset_count}</TableCell>
                       <TableCell>
                         {c.scope?.length ? (
                           <div className="flex flex-wrap gap-1">
@@ -380,7 +380,7 @@ export default function AssetsPage() {
                             ))}
                           </div>
                         ) : (
-                          <span className="text-xs text-muted-foreground">No scope set</span>
+                          <span className="text-muted-foreground text-xs">No scope set</span>
                         )}
                       </TableCell>
                       <TableCell className="text-right">
@@ -405,8 +405,9 @@ export default function AssetsPage() {
                   ))}
                   {companies.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
-                        No companies yet. Click "Add company" in the upper right and enter an Asset scope. Matching Assets will be assigned automatically.
+                      <TableCell colSpan={4} className="py-10 text-center text-muted-foreground text-sm">
+                        No companies yet. Click "Add company" in the upper right and enter an Asset scope. Matching
+                        Assets will be assigned automatically.
                       </TableCell>
                     </TableRow>
                   )}
@@ -436,7 +437,7 @@ export default function AssetsPage() {
                 <TableCell className="w-8 pr-0">
                   <Checkbox checked={selected.has(a.id)} onCheckedChange={() => toggleSelect(a.id)} />
                 </TableCell>
-                <TableCell className="font-mono text-xs font-medium">{a.domain}</TableCell>
+                <TableCell className="font-medium font-mono text-xs">{a.domain}</TableCell>
                 <TableCell className="text-xs">{a.icp || "—"}</TableCell>
                 <TableCell className="text-xs">
                   {companyName(a.company_id) || <span className="text-muted-foreground">Unassigned</span>}
@@ -477,7 +478,7 @@ export default function AssetsPage() {
                 <TableCell className="w-8 pr-0">
                   <Checkbox checked={selected.has(a.id)} onCheckedChange={() => toggleSelect(a.id)} />
                 </TableCell>
-                <TableCell className="font-mono text-xs font-medium">{a.ip}</TableCell>
+                <TableCell className="font-medium font-mono text-xs">{a.ip}</TableCell>
                 <TableCell className="font-mono text-xs">{a.c_segment || "—"}</TableCell>
                 <TableCell>
                   <Chips items={a.bound_domains ?? []} mono />
@@ -524,7 +525,7 @@ export default function AssetsPage() {
                 <TableCell className="w-8 pr-0">
                   <Checkbox checked={selected.has(a.id)} onCheckedChange={() => toggleSelect(a.id)} />
                 </TableCell>
-                <TableCell className="font-mono text-xs font-medium">{a.domain}</TableCell>
+                <TableCell className="font-medium font-mono text-xs">{a.domain}</TableCell>
                 <TableCell className="font-mono text-xs">{a.root_domain || "—"}</TableCell>
                 <TableCell className="text-xs">{a.record_type || "—"}</TableCell>
                 <TableCell className="max-w-xs truncate font-mono text-xs">
@@ -566,7 +567,7 @@ export default function AssetsPage() {
                 <TableCell className="w-8 pr-0">
                   <Checkbox checked={selected.has(a.id)} onCheckedChange={() => toggleSelect(a.id)} />
                 </TableCell>
-                <TableCell className="text-xs font-medium">{a.app_name || "—"}</TableCell>
+                <TableCell className="font-medium text-xs">{a.app_name || "—"}</TableCell>
                 <TableCell className="font-mono text-xs">{a.bundle_id || "—"}</TableCell>
                 <TableCell className="text-xs">{a.category || "—"}</TableCell>
                 <TableCell className="text-xs">{a.app_icp || "—"}</TableCell>
@@ -636,7 +637,7 @@ export default function AssetsPage() {
                   <TableCell className="font-mono text-xs tabular-nums">{a.port || "—"}</TableCell>
                   <TableCell>
                     {a.status_code != null ? (
-                      <span className={cn("font-mono text-xs font-semibold tabular-nums", statusTone(a.status_code))}>
+                      <span className={cn("font-mono font-semibold text-xs tabular-nums", statusTone(a.status_code))}>
                         {a.status_code}
                       </span>
                     ) : (
@@ -651,7 +652,7 @@ export default function AssetsPage() {
                   </TableCell>
                   <TableCell>
                     {(a.auth ?? []).length === 0 ? (
-                      <span className="text-xs text-muted-foreground">—</span>
+                      <span className="text-muted-foreground text-xs">—</span>
                     ) : (
                       (a.auth ?? []).map((authItem, i) => {
                         const item = authItem as Record<string, string>;
@@ -739,8 +740,8 @@ export default function AssetsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm deletion</AlertDialogTitle>
             <AlertDialogDescription>
-              Permanently delete <span className="font-semibold tabular-nums">{deleteIds.length}</span>{" "}
-              Asset records. This cannot be undone.
+              Permanently delete <span className="font-semibold tabular-nums">{deleteIds.length}</span> Asset records.
+              This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -773,7 +774,9 @@ export default function AssetsPage() {
             <AlertDialogTitle>Delete company · {companyDeleteTarget?.name}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3">
-                <p>This will permanently delete this company and its Asset scope configuration. This cannot be undone.</p>
+                <p>
+                  This will permanently delete this company and its Asset scope configuration. This cannot be undone.
+                </p>
                 <label
                   htmlFor="delete-assets-opt"
                   className="flex cursor-pointer items-center gap-2.5 rounded-md border p-3 hover:bg-muted/50"
@@ -785,7 +788,9 @@ export default function AssetsPage() {
                   />
                   <span className="text-sm leading-snug">
                     Also delete all Assets assigned to this company
-                    <span className="block text-xs text-muted-foreground">Leave unchecked to keep Assets and only remove their company assignment</span>
+                    <span className="block text-muted-foreground text-xs">
+                      Leave unchecked to keep Assets and only remove their company assignment
+                    </span>
                   </span>
                 </label>
               </div>
@@ -846,7 +851,7 @@ function AssetCard({
 
   return (
     <Card className="flex min-h-0 flex-1 flex-col overflow-hidden py-0">
-      <div className="min-h-0 flex-1 overflow-auto scrollbar-thin scrollbar-track-transparent">
+      <div className="scrollbar-thin scrollbar-track-transparent min-h-0 flex-1 overflow-auto">
         <Table>
           <TableHeader className="sticky top-0 z-10 bg-card">
             <TableRow>
@@ -869,7 +874,7 @@ function AssetCard({
               childRows
             ) : (
               <TableRow>
-                <TableCell colSpan={cols.length} className="py-12 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={cols.length} className="py-12 text-center text-muted-foreground text-sm">
                   {loaded ? "No data." : "Loading..."}
                 </TableCell>
               </TableRow>
@@ -878,7 +883,7 @@ function AssetCard({
         </Table>
       </div>
       {total > 0 && (
-        <div className="flex shrink-0 items-center gap-2 border-t px-3 py-1.5 text-xs text-muted-foreground">
+        <div className="flex shrink-0 items-center gap-2 border-t px-3 py-1.5 text-muted-foreground text-xs">
           <Select value={String(size)} onValueChange={(v) => onSize(Number(v))}>
             <SelectTrigger size="sm" className="h-7 w-24">
               <SelectValue />
@@ -929,7 +934,7 @@ function AssetCard({
 
 function Chips({ items, mono }: { items: string[]; mono?: boolean }) {
   const clean = items.filter(Boolean);
-  if (clean.length === 0) return <span className="text-xs text-muted-foreground">—</span>;
+  if (clean.length === 0) return <span className="text-muted-foreground text-xs">—</span>;
   return (
     <div className="flex flex-wrap gap-1">
       {clean.map((s, i) => (
@@ -1022,7 +1027,10 @@ function CompanyDialog({ onSaved }: { onSaved: () => void }) {
       <SheetContent className="w-full! max-w-none! gap-0 p-0 sm:w-[520px]! sm:max-w-[520px]!">
         <SheetHeader className="border-b p-6">
           <SheetTitle>Add company</SheetTitle>
-          <SheetDescription>Configure a company and its Asset scope. Keywords are only hints for Agents and do not automatically assign Assets.</SheetDescription>
+          <SheetDescription>
+            Configure a company and its Asset scope. Keywords are only hints for Agents and do not automatically assign
+            Assets.
+          </SheetDescription>
         </SheetHeader>
         <div className="flex-1 overflow-y-auto p-6">
           <FieldGroup>
@@ -1101,7 +1109,8 @@ function EditScopeDialog({ company, onSaved }: { company: Company; onSaved: () =
         <DialogHeader>
           <DialogTitle>Edit Asset scope · {company.name}</DialogTitle>
           <DialogDescription>
-            Editing replaces the entire existing scope. ICP matches Assets exactly; company keywords are only hints for Agents.
+            Editing replaces the entire existing scope. ICP matches Assets exactly; company keywords are only hints for
+            Agents.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup className="py-2">
@@ -1183,7 +1192,10 @@ function AppendScopeDialog({ company, onSaved }: { company: Company; onSaved: ()
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Append Asset scope · {company.name}</DialogTitle>
-          <DialogDescription>New scope entries are appended to the existing scope. ICP matches Assets exactly; company keywords are only hints for Agents.</DialogDescription>
+          <DialogDescription>
+            New scope entries are appended to the existing scope. ICP matches Assets exactly; company keywords are only
+            hints for Agents.
+          </DialogDescription>
         </DialogHeader>
         <FieldGroup className="py-2">
           <ScopeTextEditor

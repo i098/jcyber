@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+
 import {
   DownloadIcon,
   FileIcon,
@@ -16,33 +17,14 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Sheet,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import type { WorkspaceEntry, WorkspaceFile } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 function fmtSize(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -76,20 +58,17 @@ export default function WorkspacePage() {
   const [mkdirName, setMkdirName] = React.useState("");
   const uploadRef = React.useRef<HTMLInputElement>(null);
 
-  const load = React.useCallback(
-    (p: string) => {
-      setLoading(true);
-      api
-        .workspaceList(p)
-        .then((r) => {
-          setEntries(r.entries);
-          setPath(r.path);
-        })
-        .catch((e) => toast.error(`Failed to read directory: ${(e as Error).message}`))
-        .finally(() => setLoading(false));
-    },
-    [],
-  );
+  const load = React.useCallback((p: string) => {
+    setLoading(true);
+    api
+      .workspaceList(p)
+      .then((r) => {
+        setEntries(r.entries);
+        setPath(r.path);
+      })
+      .catch((e) => toast.error(`Failed to read directory: ${(e as Error).message}`))
+      .finally(() => setLoading(false));
+  }, []);
 
   React.useEffect(() => {
     load("");
@@ -130,7 +109,10 @@ export default function WorkspacePage() {
   };
 
   const del = (e: WorkspaceEntry) => {
-    if (!window.confirm(`Delete ${e.dir ? "directory" : "file"} "${e.name}"?${e.dir ? " (including all contents)" : ""}`)) return;
+    if (
+      !window.confirm(`Delete ${e.dir ? "directory" : "file"} "${e.name}"?${e.dir ? " (including all contents)" : ""}`)
+    )
+      return;
     api
       .workspaceDelete(e.path)
       .then(() => {
@@ -174,7 +156,7 @@ export default function WorkspacePage() {
       {/* 头部：面包屑 + 操作 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-1 text-sm">
-          <HardDriveIcon className="text-muted-foreground mr-1 size-4 shrink-0" />
+          <HardDriveIcon className="mr-1 size-4 shrink-0 text-muted-foreground" />
           {crumbs.map((c, i) => (
             <React.Fragment key={c.path}>
               {i > 0 && <span className="text-muted-foreground">/</span>}
@@ -183,7 +165,7 @@ export default function WorkspacePage() {
                 onClick={() => load(c.path)}
                 className={cn(
                   "max-w-[160px] truncate rounded px-1.5 py-0.5 hover:bg-accent",
-                  i === crumbs.length - 1 ? "text-foreground font-medium" : "text-muted-foreground",
+                  i === crumbs.length - 1 ? "font-medium text-foreground" : "text-muted-foreground",
                 )}
               >
                 {c.name}
@@ -201,13 +183,7 @@ export default function WorkspacePage() {
           <Button variant="ghost" size="icon" className="size-8" onClick={() => load(path)} title="Refresh">
             <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
           </Button>
-          <input
-            ref={uploadRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(e) => doUpload(e.target.files)}
-          />
+          <input ref={uploadRef} type="file" multiple className="hidden" onChange={(e) => doUpload(e.target.files)} />
         </div>
       </div>
 
@@ -225,7 +201,7 @@ export default function WorkspacePage() {
             <TableBody>
               {entries.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-muted-foreground py-10 text-center text-sm">
+                  <TableCell colSpan={4} className="py-10 text-center text-muted-foreground text-sm">
                     {loading ? "Loading..." : "Empty directory"}
                   </TableCell>
                 </TableRow>
@@ -241,12 +217,12 @@ export default function WorkspacePage() {
                       {e.dir ? (
                         <FolderIcon className="size-4 shrink-0 text-blue-500" />
                       ) : (
-                        <FileIcon className="text-muted-foreground size-4 shrink-0" />
+                        <FileIcon className="size-4 shrink-0 text-muted-foreground" />
                       )}
                       <span className="truncate font-mono text-sm">{e.name}</span>
                     </button>
                   </TableCell>
-                  <TableCell className="text-muted-foreground text-right font-mono text-xs">
+                  <TableCell className="text-right font-mono text-muted-foreground text-xs">
                     {e.dir ? "—" : fmtSize(e.size)}
                   </TableCell>
                   <TableCell className="text-muted-foreground text-xs">{fmtTime(e.mtime)}</TableCell>
@@ -258,7 +234,11 @@ export default function WorkspacePage() {
                           size="icon"
                           className="size-7"
                           title="Download"
-                          onClick={() => api.workspaceDownload(e.path).catch((err) => toast.error(`Download failed: ${(err as Error).message}`))}
+                          onClick={() =>
+                            api
+                              .workspaceDownload(e.path)
+                              .catch((err) => toast.error(`Download failed: ${(err as Error).message}`))
+                          }
                         >
                           <DownloadIcon className="size-3.5" />
                         </Button>
@@ -266,7 +246,7 @@ export default function WorkspacePage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="text-destructive size-7"
+                        className="size-7 text-destructive"
                         title="Delete"
                         onClick={() => del(e)}
                       >
@@ -299,7 +279,9 @@ export default function WorkspacePage() {
               {edit.file.binary || edit.file.too_large ? (
                 <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
                   <p className="text-muted-foreground text-sm">
-                    {edit.file.too_large ? "File too large for online preview/editing." : "Binary files cannot be previewed/edited online."}
+                    {edit.file.too_large
+                      ? "File too large for online preview/editing."
+                      : "Binary files cannot be previewed/edited online."}
                   </p>
                   <Button variant="outline" onClick={() => api.workspaceDownload(edit.file.path)}>
                     <DownloadIcon /> Download file
@@ -318,10 +300,7 @@ export default function WorkspacePage() {
                   <SheetFooter className="flex-row items-center justify-between border-t p-3">
                     <span className="text-muted-foreground text-xs">{edit.dirty ? "Unsaved changes" : "Synced"}</span>
                     <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => api.workspaceDownload(edit.file.path)}
-                      >
+                      <Button variant="outline" onClick={() => api.workspaceDownload(edit.file.path)}>
                         <DownloadIcon /> Download
                       </Button>
                       <Button onClick={saveFile} disabled={!edit.dirty || edit.saving}>

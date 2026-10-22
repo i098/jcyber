@@ -109,7 +109,10 @@ export function FindingTrafficPanel({
               <Badge variant="outline">Inherited Evidence · Read-only</Badge>
             )}
           </div>
-          <CardDescription>Organize requests and responses in reproduction order. Linked evidence is retained after raw traffic is cleared.</CardDescription>
+          <CardDescription>
+            Organize requests and responses in reproduction order. Linked evidence is retained after raw traffic is
+            cleared.
+          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {error ? (
@@ -128,7 +131,9 @@ export function FindingTrafficPanel({
             <Empty>
               <EmptyHeader>
                 <EmptyTitle>No linked traffic</EmptyTitle>
-                <EmptyDescription>Link baseline, vulnerability proof, and additional verification requests.</EmptyDescription>
+                <EmptyDescription>
+                  Link baseline, vulnerability proof, and additional verification requests.
+                </EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : (
@@ -141,18 +146,18 @@ export function FindingTrafficPanel({
                   <Badge variant="secondary">
                     {b.snapshot.method} · {b.snapshot.status}
                   </Badge>
-                  <span className="text-xs text-muted-foreground">Evidence #{b.id}</span>
+                  <span className="text-muted-foreground text-xs">Evidence #{b.id}</span>
                 </div>
                 <Button
                   variant="link"
-                  className="h-auto justify-start p-0 text-left whitespace-normal"
+                  className="h-auto justify-start whitespace-normal p-0 text-left"
                   onClick={() => setPreview(b.id)}
                 >
                   <span className="break-all font-mono text-xs">{b.snapshot.url}</span>
                 </Button>
-                {b.note ? <p className="text-sm whitespace-pre-wrap">{b.note}</p> : null}
+                {b.note ? <p className="whitespace-pre-wrap text-sm">{b.note}</p> : null}
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-muted-foreground text-xs">
                     {new Date(b.snapshot.captured_at * 1000).toLocaleString("zh-CN")}
                   </span>
                   <div className="flex flex-wrap gap-1">
@@ -237,7 +242,9 @@ export function FindingTrafficPanel({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Traffic Evidence</DialogTitle>
-            <DialogDescription>Describe how this request/response supports the vulnerability conclusion.</DialogDescription>
+            <DialogDescription>
+              Describe how this request/response supports the vulnerability conclusion.
+            </DialogDescription>
           </DialogHeader>
           <FieldGroup>
             <Field>

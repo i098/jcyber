@@ -136,7 +136,9 @@ export function TaskLLMProfileChain({
       </Combobox>
 
       {value.length === 0 ? (
-        <p className="text-muted-foreground text-xs">Without a specified profile, the Task uses the Agent or globally active profile.</p>
+        <p className="text-muted-foreground text-xs">
+          Without a specified profile, the Task uses the Agent or globally active profile.
+        </p>
       ) : (
         <div className="flex flex-col divide-y rounded-lg border">
           {value.map((id, index) => {
@@ -150,7 +152,9 @@ export function TaskLLMProfileChain({
                 <div className="min-w-0 sm:flex-1">
                   <p className="truncate font-medium text-sm">{profile?.name ?? `Profile #${id}`}</p>
                   <div className="flex min-w-0 items-center gap-2">
-                    <p className="truncate text-muted-foreground text-xs">{profile?.model ?? "Profile no longer available"}</p>
+                    <p className="truncate text-muted-foreground text-xs">
+                      {profile?.model ?? "Profile no longer available"}
+                    </p>
                   </div>
                 </div>
                 <ProfileRoleBadge index={index} currentIndex={currentIndex} />

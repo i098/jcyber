@@ -212,7 +212,7 @@ export function FindingsTable({
                     ) : (
                       <span className="truncate font-medium">{f.name || f.vulnclass || "Uncategorized"}</span>
                     )}
-                    <span className="truncate text-xs text-muted-foreground">{f.summary}</span>
+                    <span className="truncate text-muted-foreground text-xs">{f.summary}</span>
                     <Badge variant="outline">Traffic evidence: {f.traffic_count ?? 0} records</Badge>
                   </div>
                 </TableCell>
@@ -229,7 +229,7 @@ export function FindingsTable({
                         </code>
                       ))}
                       {f.assets.length > 3 && (
-                        <span className="text-xs text-muted-foreground">+{f.assets.length - 3}</span>
+                        <span className="text-muted-foreground text-xs">+{f.assets.length - 3}</span>
                       )}
                     </div>
                   ) : (
@@ -269,7 +269,7 @@ export function FindingsTable({
                     <span className="text-muted-foreground">—</span>
                   )}
                 </TableCell>
-                <TableCell className="text-xs text-muted-foreground tabular-nums">{fmtTime(f.ts)}</TableCell>
+                <TableCell className="text-muted-foreground text-xs tabular-nums">{fmtTime(f.ts)}</TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center gap-1">
                     {retest ? (
@@ -281,7 +281,12 @@ export function FindingsTable({
                       </Button>
                     ) : null}
                     {!retest && f.finding_id && !f.inherited ? (
-                      <Button size="sm" variant="ghost" onClick={() => onRetest(f)} title="Retest this Vulnerability in a separate Session">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => onRetest(f)}
+                        title="Retest this Vulnerability in a separate Session"
+                      >
                         <RotateCcwIcon data-icon="inline-start" />
                         Retest
                       </Button>
@@ -312,7 +317,8 @@ export function FindingsTable({
                               <span className="break-all">
                                 {f.name || f.vulnclass || f.summary || `#${f.finding_id}`}
                               </span>
-                              &quot; will be permanently deleted and removed from the Findings list, Task Findings tab, and Exploration Graph. This cannot be undone.
+                              &quot; will be permanently deleted and removed from the Findings list, Task Findings tab,
+                              and Exploration Graph. This cannot be undone.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -329,13 +335,13 @@ export function FindingsTable({
                 <TableRow className="hover:bg-transparent">
                   {/* whitespace-normal 覆盖 TableCell 默认的 nowrap,否则展开区文字
                       被强制单行、直接溢出单元格。 */}
-                  <TableCell colSpan={COLUMN_COUNT} className="bg-muted/30 whitespace-normal">
+                  <TableCell colSpan={COLUMN_COUNT} className="whitespace-normal bg-muted/30">
                     <div className="flex flex-col gap-2 px-2 py-1">
                       {/* 行内编辑:名称/类别/严重等级,可改并保存(仅独立 finding 行)。 */}
                       {f.finding_id && edit && (
                         <div className="flex flex-wrap items-end gap-3 rounded-md border bg-background px-3 py-2.5">
                           <div className="flex min-w-[12rem] flex-1 flex-col gap-1">
-                            <Label className="text-xs text-muted-foreground">Vulnerability name</Label>
+                            <Label className="text-muted-foreground text-xs">Vulnerability name</Label>
                             <Input
                               value={edit.name}
                               onChange={(e) => onEditChange((s) => (s ? { ...s, name: e.target.value } : s))}
@@ -343,7 +349,7 @@ export function FindingsTable({
                             />
                           </div>
                           <div className="flex min-w-[10rem] flex-col gap-1">
-                            <Label className="text-xs text-muted-foreground">Category</Label>
+                            <Label className="text-muted-foreground text-xs">Category</Label>
                             <Input
                               value={edit.vulnclass}
                               onChange={(e) => onEditChange((s) => (s ? { ...s, vulnclass: e.target.value } : s))}
@@ -351,7 +357,7 @@ export function FindingsTable({
                             />
                           </div>
                           <div className="flex flex-col gap-1">
-                            <Label className="text-xs text-muted-foreground">Severity</Label>
+                            <Label className="text-muted-foreground text-xs">Severity</Label>
                             <Select
                               value={edit.severity}
                               onValueChange={(v) => onEditChange((s) => (s ? { ...s, severity: v as Severity } : s))}
@@ -373,7 +379,7 @@ export function FindingsTable({
                           </Button>
                         </div>
                       )}
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
                         <ShieldAlertIcon className="size-3.5" />
                         Evidence
                         {f.vulnclass && (
@@ -394,14 +400,14 @@ export function FindingsTable({
                           </span>
                         )}
                       </div>
-                      <pre className="overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-xs whitespace-pre-wrap">
+                      <pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-muted px-3 py-2 font-mono text-xs">
                         {f.evidence}
                       </pre>
 
                       {/* 详细报告(Markdown):展开时按 finding_id 懒加载,免进详情页即可查看。 */}
                       {f.finding_id && (
                         <div className="flex flex-col gap-1.5">
-                          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                          <div className="flex items-center justify-between gap-2 text-muted-foreground text-xs">
                             <span className="flex items-center gap-2">
                               <FileTextIcon className="size-3.5" />
                               Detailed Report
@@ -418,11 +424,11 @@ export function FindingsTable({
                           {(() => {
                             const rep = reports[rowKey];
                             if (!rep || rep.status === "loading")
-                              return <p className="text-xs text-muted-foreground">Loading...</p>;
+                              return <p className="text-muted-foreground text-xs">Loading...</p>;
                             if (rep.status === "error")
-                              return <p className="text-xs text-muted-foreground">Failed to load Report.</p>;
+                              return <p className="text-muted-foreground text-xs">Failed to load Report.</p>;
                             if (!rep.text.trim())
-                              return <p className="text-xs text-muted-foreground">No detailed Report available.</p>;
+                              return <p className="text-muted-foreground text-xs">No detailed Report available.</p>;
                             return (
                               // break-words 会继承到段落/列表,pre 另加
                               // whitespace-pre-wrap 让代码块也换行——否则长代码行/长 URL
@@ -443,7 +449,7 @@ export function FindingsTable({
         })}
         {items.length === 0 && (
           <TableRow>
-            <TableCell colSpan={COLUMN_COUNT} className="py-12 text-center text-sm text-muted-foreground">
+            <TableCell colSpan={COLUMN_COUNT} className="py-12 text-center text-muted-foreground text-sm">
               No matching Findings.
             </TableCell>
           </TableRow>

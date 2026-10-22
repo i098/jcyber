@@ -149,7 +149,8 @@ function DataSourceCard({
         {!status?.exists ? (
           <div className="flex items-center justify-between gap-4">
             <p className="text-muted-foreground text-sm">
-              No ScopeSentry data source exists yet. Creating one adds a disabled MCP entry with an empty address and Key.
+              No ScopeSentry data source exists yet. Creating one adds a disabled MCP entry with an empty address and
+              Key.
             </p>
             <Button onClick={create} disabled={busy}>
               Create data source
@@ -163,7 +164,9 @@ function DataSourceCard({
               </p>
             )}
             {status.configured && !status.enabled && (
-              <p className="text-amber-600 text-sm dark:text-amber-500">Data source configured but disabled. Saving will enable it automatically.</p>
+              <p className="text-amber-600 text-sm dark:text-amber-500">
+                Data source configured but disabled. Saving will enable it automatically.
+              </p>
             )}
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-1.5">

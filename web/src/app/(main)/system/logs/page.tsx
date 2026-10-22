@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Input } from "@/components/ui/input";
+
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { sseUrl } from "@/lib/api";
 import { MOCK } from "@/lib/mock/enabled";
 import type { LogLine } from "@/lib/types";
@@ -10,12 +11,48 @@ import { cn } from "@/lib/utils";
 
 // Mock demo：无后端 SSE，塞几行示例日志。
 const MOCK_LOGS: LogLine[] = [
-  { seq: 1, ts: "2026-07-26T03:55:00Z", level: "info", tag: "engine", text: "jcyber v0.1.0 backend listening on :8787 (workers=3)" },
-  { seq: 2, ts: "2026-07-26T03:55:01Z", level: "info", tag: "config", text: "LLM configured from DB: anthropic / claude-opus-4-8" },
-  { seq: 3, ts: "2026-07-26T03:56:10Z", level: "info", tag: "planner", text: "task t-acme-web: planning round 3, generated intent i-4" },
-  { seq: 4, ts: "2026-07-26T03:57:00Z", level: "warn", tag: "guard", text: "block bash: target out.evil.example is out of scope" },
-  { seq: 5, ts: "2026-07-26T03:57:30Z", level: "info", tag: "work#1", text: "report_finding: Default Credentials (high) saved to database" },
-  { seq: 6, ts: "2026-07-26T03:58:20Z", level: "error", tag: "work#3", text: "intercept: mysqldump matched a destructive rule, awaiting human approval" },
+  {
+    seq: 1,
+    ts: "2026-07-26T03:55:00Z",
+    level: "info",
+    tag: "engine",
+    text: "jcyber v0.1.0 backend listening on :8787 (workers=3)",
+  },
+  {
+    seq: 2,
+    ts: "2026-07-26T03:55:01Z",
+    level: "info",
+    tag: "config",
+    text: "LLM configured from DB: anthropic / claude-opus-4-8",
+  },
+  {
+    seq: 3,
+    ts: "2026-07-26T03:56:10Z",
+    level: "info",
+    tag: "planner",
+    text: "task t-acme-web: planning round 3, generated intent i-4",
+  },
+  {
+    seq: 4,
+    ts: "2026-07-26T03:57:00Z",
+    level: "warn",
+    tag: "guard",
+    text: "block bash: target out.evil.example is out of scope",
+  },
+  {
+    seq: 5,
+    ts: "2026-07-26T03:57:30Z",
+    level: "info",
+    tag: "work#1",
+    text: "report_finding: Default Credentials (high) saved to database",
+  },
+  {
+    seq: 6,
+    ts: "2026-07-26T03:58:20Z",
+    level: "error",
+    tag: "work#3",
+    text: "intercept: mysqldump matched a destructive rule, awaiting human approval",
+  },
 ];
 
 const levelTone: Record<LogLine["level"], string> = {
@@ -31,7 +68,7 @@ const levelDot: Record<LogLine["level"], string> = {
 
 function fmtTime(ts: string) {
   const d = new Date(ts);
-  if (isNaN(d.getTime())) return "";
+  if (Number.isNaN(d.getTime())) return "";
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
@@ -89,7 +126,7 @@ export default function LogsPage() {
       const params = minDbId > 0 ? `?before=${minDbId}&limit=200` : `?limit=200`;
       const res = await fetch(`/api/logs/history${params}`);
       if (!res.ok) return;
-      const data = await res.json() as { items: LogLine[]; has_more: boolean };
+      const data = (await res.json()) as { items: LogLine[]; has_more: boolean };
       if (data.items?.length) {
         // Assign synthetic seq numbers below current minimum to keep dedup working.
         setLines((prev) => {
@@ -127,7 +164,7 @@ export default function LogsPage() {
 
   React.useEffect(() => {
     if (stick.current && !paused) bottom.current?.scrollIntoView();
-  }, [filtered, paused]);
+  }, [paused]);
 
   const counts = React.useMemo(() => {
     let warn = 0,
@@ -142,8 +179,10 @@ export default function LogsPage() {
   return (
     <div className="flex flex-1 flex-col gap-3">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">System Logs</h1>
-        <p className="text-muted-foreground text-sm">Real-time backend logs (planner / worker / database / traffic ...)</p>
+        <h1 className="font-semibold text-xl tracking-tight">System Logs</h1>
+        <p className="text-muted-foreground text-sm">
+          Real-time backend logs (planner / worker / database / traffic ...)
+        </p>
       </div>
       <div className="flex flex-1 flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -177,9 +216,8 @@ export default function LogsPage() {
           <Button size="sm" variant="outline" className="h-8" onClick={() => setLines([])}>
             Clear
           </Button>
-          <span className="ml-auto text-xs text-muted-foreground">
-            {counts.total} lines ·{" "}
-            <span className="text-amber-600 dark:text-amber-400">{counts.warn} warnings</span> ·{" "}
+          <span className="ml-auto text-muted-foreground text-xs">
+            {counts.total} lines · <span className="text-amber-600 dark:text-amber-400">{counts.warn} warnings</span> ·{" "}
             <span className="text-red-600 dark:text-red-400">{counts.error} errors</span>
           </span>
         </div>
@@ -209,13 +247,11 @@ export default function LogsPage() {
           ) : (
             filtered.map((l) => {
               const body =
-                l.tag && l.text.startsWith("[" + l.tag + "]")
-                  ? l.text.slice(l.tag.length + 2).trimStart()
-                  : l.text;
+                l.tag && l.text.startsWith(`[${l.tag}]`) ? l.text.slice(l.tag.length + 2).trimStart() : l.text;
               return (
                 <div key={l.seq} className="flex items-start gap-2 px-1 py-0.5 hover:bg-muted/40">
                   <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", levelDot[l.level])} />
-                  <span className="shrink-0 tabular-nums text-muted-foreground">{fmtTime(l.ts)}</span>
+                  <span className="shrink-0 text-muted-foreground tabular-nums">{fmtTime(l.ts)}</span>
                   {l.tag && (
                     <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-foreground/70">{l.tag}</span>
                   )}

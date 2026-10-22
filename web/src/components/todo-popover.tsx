@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+
 import { ListTodo } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -54,25 +55,26 @@ export function TodoPopover({
           type="button"
           disabled={disabled}
           title={disabled ? "No Todo in this Session" : "View latest Todo"}
-          className="text-muted-foreground/70 hover:text-primary flex items-center gap-0.5 text-xs disabled:pointer-events-none disabled:opacity-40"
+          className="flex items-center gap-0.5 text-muted-foreground/70 text-xs hover:text-primary disabled:pointer-events-none disabled:opacity-40"
         >
           <ListTodo className="size-3" />
           Todo
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="max-h-80 w-80 overflow-auto p-2">
-        <p className="text-muted-foreground px-1 pb-1 text-[11px] font-medium">
+        <p className="px-1 pb-1 font-medium text-[11px] text-muted-foreground">
           Latest Todo{loading ? " · Loading..." : ""}
         </p>
-        {err && <p className="text-destructive px-1 text-xs">{err}</p>}
-        {todos && todos.length === 0 && !loading && (
-          <p className="text-muted-foreground px-1 text-xs">(empty)</p>
-        )}
+        {err && <p className="px-1 text-destructive text-xs">{err}</p>}
+        {todos && todos.length === 0 && !loading && <p className="px-1 text-muted-foreground text-xs">(empty)</p>}
         <ul className="space-y-0.5">
           {(todos ?? []).map((t, i) => (
             <li
               key={`${i}:${t.content}`}
-              className={cn("flex gap-1.5 px-1 text-xs", t.status === "completed" && "text-muted-foreground line-through")}
+              className={cn(
+                "flex gap-1.5 px-1 text-xs",
+                t.status === "completed" && "text-muted-foreground line-through",
+              )}
             >
               <span className="shrink-0">{MARK[t.status] ?? "☐"}</span>
               <span className="break-words">{t.content}</span>

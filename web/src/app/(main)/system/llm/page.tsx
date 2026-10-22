@@ -165,8 +165,8 @@ function PoolSheet({
             <ZapIcon className="size-4" /> LLM rotation · Failover
           </SheetTitle>
           <SheetDescription>
-            When enabled, Agents with <b>no specified model</b> automatically switch to the next profile when the current one is unavailable (insufficient balance / invalid Key / Rate limit /
-            service errors).
+            When enabled, Agents with <b>no specified model</b> automatically switch to the next profile when the
+            current one is unavailable (insufficient balance / invalid Key / Rate limit / service errors).
           </SheetDescription>
         </SheetHeader>
 
@@ -174,7 +174,9 @@ function PoolSheet({
           <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
             <div className="grid gap-0.5">
               <Label className="text-sm">Enable rotation</Label>
-              <p className="text-muted-foreground text-xs">Disabled by default. When disabled, only the active profile is used, with no fallback on failure.</p>
+              <p className="text-muted-foreground text-xs">
+                Disabled by default. When disabled, only the active profile is used, with no fallback on failure.
+              </p>
             </div>
             <Switch
               checked={enabled}
@@ -190,8 +192,9 @@ function PoolSheet({
                 <div className="grid gap-0.5">
                   <Label className="text-sm">Fall back when a specified model fails</Label>
                   <p className="text-muted-foreground text-xs">
-                    Disabled by default: an Agent or Task with a specified profile uses only that profile, with no fallback on failure (the model is never silently replaced).
-                    When enabled, a failed specified profile also falls back to the rotation chain below.
+                    Disabled by default: an Agent or Task with a specified profile uses only that profile, with no
+                    fallback on failure (the model is never silently replaced). When enabled, a failed specified profile
+                    also falls back to the rotation chain below.
                   </p>
                 </div>
                 <Switch
@@ -215,7 +218,8 @@ function PoolSheet({
                 </div>
                 {inChain.length < 2 && (
                   <p className="text-muted-foreground text-xs">
-                    Only {inChain.length} profiles are available. Rotation requires at least 2 participating profiles with API Keys configured.
+                    Only {inChain.length} profiles are available. Rotation requires at least 2 participating profiles
+                    with API Keys configured.
                   </p>
                 )}
                 {chain.map((m) => {
@@ -243,7 +247,9 @@ function PoolSheet({
                         {excluded && <Badge variant="outline">Excluded from rotation</Badge>}
                         <div className="ml-auto flex items-center gap-2">
                           {m.state === "tripped" && m.cooldown_secs > 0 && (
-                            <span className="text-muted-foreground text-xs">Cooldown {cooldownText(m.cooldown_secs)}</span>
+                            <span className="text-muted-foreground text-xs">
+                              Cooldown {cooldownText(m.cooldown_secs)}
+                            </span>
                           )}
                           {m.state === "degraded" && (
                             <span className="text-muted-foreground text-xs">{m.fails} consecutive failures</span>
@@ -282,9 +288,10 @@ function PoolSheet({
               </div>
 
               <div className="rounded-lg border border-dashed p-3 text-muted-foreground text-xs leading-relaxed">
-                The active profile always comes first; others follow in descending priority (set in each profile). Failed profiles enter a cooldown (60s → 5min →
-                30min) and are skipped until recovery, when they are automatically used again. Profiles whose context windows cannot fit the current request are skipped. Agents
-                and Tasks with a specified model do not participate in rotation by default.
+                The active profile always comes first; others follow in descending priority (set in each profile).
+                Failed profiles enter a cooldown (60s → 5min → 30min) and are skipped until recovery, when they are
+                automatically used again. Profiles whose context windows cannot fit the current request are skipped.
+                Agents and Tasks with a specified model do not participate in rotation by default.
               </div>
             </>
           )}
@@ -447,7 +454,10 @@ function ProfileSheet({
         retry,
       });
       if (isNew) toast.success(`Created: ${name.trim()} (choose "Set active" on the card to enable it)`);
-      else toast.success(profile?.is_default ? "Saved. The active profile takes effect immediately; no restart required" : "Saved");
+      else
+        toast.success(
+          profile?.is_default ? "Saved. The active profile takes effect immediately; no restart required" : "Saved",
+        );
       onSaved(String(id));
       onOpenChange(false);
     } catch (e) {
@@ -574,7 +584,8 @@ function ProfileSheet({
             />
             <p className="text-muted-foreground text-xs">
               Only outbound LLM requests use this proxy. Supports http/https/socks5 and optional Credentials (e.g.
-              socks5://user:pass@host:port; URL-encode special characters in the password). Leave blank for a direct connection.
+              socks5://user:pass@host:port; URL-encode special characters in the password). Leave blank for a direct
+              connection.
             </p>
           </div>
 
@@ -588,9 +599,10 @@ function ProfileSheet({
               onChange={(e) => setSessionHeaderKey(e.target.value)}
             />
             <p className="text-muted-foreground text-xs">
-              When a header name is set, every request includes this HTTP header with <b>the current Session ID</b> as its value (e.g. a Chat Session uses
-              conv-12, a worker uses exp3-worker-i87). For gateways that use a session-id header for prompt caching /
-              sticky routing. The value remains stable across turns within a Session and differs between Sessions. Leave blank to omit it.
+              When a header name is set, every request includes this HTTP header with <b>the current Session ID</b> as
+              its value (e.g. a Chat Session uses conv-12, a worker uses exp3-worker-i87). For gateways that use a
+              session-id header for prompt caching / sticky routing. The value remains stable across turns within a
+              Session and differs between Sessions. Leave blank to omit it.
             </p>
           </div>
 
@@ -628,8 +640,8 @@ function ProfileSheet({
             </div>
           </div>
           <p className="-mt-2 text-muted-foreground text-xs">
-            Rate limit 0 = unlimited, shared by all Agents. Context window is in K (thousand Tokens); 0 = default 200K, maximum 1000 (i.e.
-            1M). Setting it too high prevents compaction from triggering.
+            Rate limit 0 = unlimited, shared by all Agents. Context window is in K (thousand Tokens); 0 = default 200K,
+            maximum 1000 (i.e. 1M). Setting it too high prevents compaction from triggering.
           </p>
 
           <div className="grid gap-3 rounded-lg border p-3">
@@ -639,7 +651,8 @@ function ProfileSheet({
                   Rotation priority
                 </Label>
                 <p className="text-muted-foreground text-xs">
-                  Higher numbers are selected first; the active profile always comes first regardless of this value. Profiles with equal priority take turns leading to share quota usage.
+                  Higher numbers are selected first; the active profile always comes first regardless of this value.
+                  Profiles with equal priority take turns leading to share quota usage.
                 </p>
               </div>
               <Input
@@ -654,8 +667,9 @@ function ProfileSheet({
               <div className="grid gap-0.5">
                 <Label className="text-sm">Exclude from rotation</Label>
                 <p className="text-muted-foreground text-xs">
-                  When enabled, this profile is not used as a failover target (Agents / Tasks can still select it explicitly). Suitable for expensive profiles
-                  reserved for a specific Agent that should not be used when other profiles fail.
+                  When enabled, this profile is not used as a failover target (Agents / Tasks can still select it
+                  explicitly). Suitable for expensive profiles reserved for a specific Agent that should not be used
+                  when other profiles fail.
                 </p>
               </div>
               <Switch checked={poolExclude} onCheckedChange={setPoolExclude} aria-label="Exclude from rotation" />
@@ -664,9 +678,10 @@ function ProfileSheet({
               <div className="grid gap-0.5">
                 <Label className="text-sm">Streaming output · streaming</Label>
                 <p className="text-muted-foreground text-xs">
-                  Enabled by default: uses streaming SSE with Real-time progress and Token counts. When disabled, uses true non-streaming requests (stream:false,
-                  returning the complete response at once), avoiding faulty SSE implementations in some gateways (empty frames / missing reasoning frames),
-                  but without Real-time progress during execution.
+                  Enabled by default: uses streaming SSE with Real-time progress and Token counts. When disabled, uses
+                  true non-streaming requests (stream:false, returning the complete response at once), avoiding faulty
+                  SSE implementations in some gateways (empty frames / missing reasoning frames), but without Real-time
+                  progress during execution.
                 </p>
               </div>
               <Switch checked={streaming} onCheckedChange={setStreaming} aria-label="Streaming output" />
@@ -680,9 +695,10 @@ function ProfileSheet({
                   Output limit · max tokens
                 </Label>
                 <p className="text-muted-foreground text-xs">
-                  Maximum Tokens generated per reply, sent with each request. 0 (default) = omit the field and use the server default.
-                  This differs from the "Context window" above: that is the total model capacity, used only locally to calculate the compaction threshold.
-                  Setting this too low can truncate reasoning models during thinking, before they produce any answer.
+                  Maximum Tokens generated per reply, sent with each request. 0 (default) = omit the field and use the
+                  server default. This differs from the "Context window" above: that is the total model capacity, used
+                  only locally to calculate the compaction threshold. Setting this too low can truncate reasoning models
+                  during thinking, before they produce any answer.
                 </p>
               </div>
               <Input
@@ -724,8 +740,9 @@ function ProfileSheet({
               <div className="grid gap-0.5">
                 <Label className="text-sm">Thinking toggle · thinking.type</Label>
                 <p className="text-muted-foreground text-xs">
-                  Controls whether the thinking field is sent. Omit = do not send the field (compatible with unsupported models such as MiniMax); Disabled = send
-                  disabled; Enabled = send enabled. Independent of the effort setting below.
+                  Controls whether the thinking field is sent. Omit = do not send the field (compatible with unsupported
+                  models such as MiniMax); Disabled = send disabled; Enabled = send enabled. Independent of the effort
+                  setting below.
                 </p>
               </div>
               <Select value={thinkingType} onValueChange={setThinkingType}>
@@ -745,8 +762,9 @@ function ProfileSheet({
               <div className="grid gap-0.5">
                 <Label className="text-sm">Reasoning effort · reasoning_effort</Label>
                 <p className="text-muted-foreground text-xs">
-                  Independent effort level (OpenAI reasoning_effort / Anthropic output_config.effort). Some APIs have no thinking
-                  field and enable reasoning through effort alone, so this can be set without sending the thinking toggle.
+                  Independent effort level (OpenAI reasoning_effort / Anthropic output_config.effort). Some APIs have no
+                  thinking field and enable reasoning through effort alone, so this can be set without sending the
+                  thinking toggle.
                 </p>
               </div>
               <Select value={effort} onValueChange={setEffort}>
@@ -858,7 +876,8 @@ export default function LLMPage() {
         <div>
           <h1 className="font-semibold text-xl tracking-tight">LLM</h1>
           <p className="text-muted-foreground text-sm">
-            Format / model / Rate limit settings shared by all Agents. Click a card to edit; the star marks the currently active profile.
+            Format / model / Rate limit settings shared by all Agents. Click a card to edit; the star marks the
+            currently active profile.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -887,7 +906,6 @@ export default function LLMPage() {
             {profiles.map((p) => {
               const h = healthOf(p, health.get(p.id));
               return (
-                // biome-ignore lint/a11y/useSemanticElements: 卡片内含自己的操作按钮，用原生 <button> 会造成按钮嵌套（非法 HTML）
                 <Card
                   key={p.id}
                   role="button"
@@ -938,7 +956,11 @@ export default function LLMPage() {
                       {/* 轮询相关的两个字段只在轮询开着时才有意义，关着时不占版面 */}
                       {poolOn &&
                         !p.is_default &&
-                        (p.pool_exclude ? <span>Excluded from rotation</span> : <span>Priority {p.priority ?? 0}</span>)}
+                        (p.pool_exclude ? (
+                          <span>Excluded from rotation</span>
+                        ) : (
+                          <span>Priority {p.priority ?? 0}</span>
+                        ))}
                     </div>
 
                     <div className="mt-1 flex gap-2">

@@ -366,8 +366,8 @@ export function AssetDslSearch({
                   apply(s);
                 }}
               >
-                <span className={cn("shrink-0 font-mono text-xs font-semibold", KIND_STYLE[s.kind])}>{s.label}</span>
-                <span className="text-xs text-muted-foreground">{s.desc}</span>
+                <span className={cn("shrink-0 font-mono font-semibold text-xs", KIND_STYLE[s.kind])}>{s.label}</span>
+                <span className="text-muted-foreground text-xs">{s.desc}</span>
               </button>
             ))}
           </div>
@@ -375,7 +375,13 @@ export function AssetDslSearch({
       </div>
       {query.trim() && !open && (
         <p className="pl-1 text-[11px] text-muted-foreground">
-          {loading ? "Searching..." : error ? <span className="text-destructive">{error}</span> : `Found ${count ?? 0} results`}
+          {loading ? (
+            "Searching..."
+          ) : error ? (
+            <span className="text-destructive">{error}</span>
+          ) : (
+            `Found ${count ?? 0} results`
+          )}
         </p>
       )}
     </div>

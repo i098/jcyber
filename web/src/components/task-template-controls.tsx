@@ -207,7 +207,10 @@ function TaskTemplateManager({
         <SheetContent className="grid h-full w-full! max-w-none! grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 sm:w-[48rem]! sm:max-w-[48rem]!">
           <SheetHeader className="border-b px-6 py-5">
             <SheetTitle>Task Template Management</SheetTitle>
-            <SheetDescription>Templates save the description, goal, category, and task-level Interception/allow rules; changes do not affect existing Tasks.</SheetDescription>
+            <SheetDescription>
+              Templates save the description, goal, category, and task-level Interception/allow rules; changes do not
+              affect existing Tasks.
+            </SheetDescription>
           </SheetHeader>
           <div className="grid min-h-0 overflow-y-auto lg:grid-cols-[15rem_minmax(0,1fr)] lg:overflow-hidden">
             <div className="flex min-h-0 flex-col border-b p-3 lg:border-r lg:border-b-0">
@@ -295,7 +298,8 @@ function TaskTemplateManager({
                     onChange={(rules) => patchDraft({ interceptRules: rules })}
                   />
                   <FieldDescription>
-                    Prefill these task-level rules when applying the template (Interception/allow; applies only to new Tasks, not globally).
+                    Prefill these task-level rules when applying the template (Interception/allow; applies only to new
+                    Tasks, not globally).
                   </FieldDescription>
                 </Field>
               </FieldGroup>
@@ -322,7 +326,9 @@ function TaskTemplateManager({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete template "{draft.name || "Untitled Template"}"?</AlertDialogTitle>
-            <AlertDialogDescription>Tasks already created from this template will not be affected.</AlertDialogDescription>
+            <AlertDialogDescription>
+              Tasks already created from this template will not be affected.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
@@ -498,7 +504,10 @@ export function TaskTemplateControls({
             </ComboboxList>
           </ComboboxContent>
         </Combobox>
-        <FieldDescription>Selection copies the template description, goal, category, and task-level rules without retaining a link to the template.</FieldDescription>
+        <FieldDescription>
+          Selection copies the template description, goal, category, and task-level rules without retaining a link to
+          the template.
+        </FieldDescription>
       </Field>
 
       <AlertDialog
@@ -512,7 +521,9 @@ export function TaskTemplateControls({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Use template "{pendingTemplate?.name}"?</AlertDialogTitle>
-            <AlertDialogDescription>The current description and goal will be overwritten by the template content.</AlertDialogDescription>
+            <AlertDialogDescription>
+              The current description and goal will be overwritten by the template content.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

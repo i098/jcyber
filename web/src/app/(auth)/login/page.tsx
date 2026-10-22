@@ -125,8 +125,10 @@ export default function LoginPage() {
       <div className="flex w-full items-center justify-center bg-background p-8 lg:w-2/3">
         <div className="w-full max-w-md space-y-10 py-24 lg:py-32">
           <div className="space-y-4 text-center">
-            <h2 className="text-2xl font-medium tracking-tight">Log in</h2>
-            <p className="mx-auto max-w-xl text-muted-foreground">Welcome back. Enter your password to continue using jcyber</p>
+            <h2 className="font-medium text-2xl tracking-tight">Log in</h2>
+            <p className="mx-auto max-w-xl text-muted-foreground">
+              Welcome back. Enter your password to continue using jcyber
+            </p>
           </div>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="space-y-1.5">
@@ -152,7 +154,7 @@ export default function LoginPage() {
                 onCheckedChange={(v) => setAgreed(v === true)}
                 className="mt-0.5"
               />
-              <Label htmlFor="agree-terms" className="text-sm font-normal leading-relaxed text-muted-foreground">
+              <Label htmlFor="agree-terms" className="font-normal text-muted-foreground text-sm leading-relaxed">
                 I have read and agree to the
                 <button
                   type="button"
@@ -163,7 +165,7 @@ export default function LoginPage() {
                 </button>
               </Label>
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {error && <p className="text-destructive text-sm">{error}</p>}
             <Button type="submit" className="w-full" disabled={loading || !password || !agreed}>
               {loading ? "Logging in..." : "Log in"}
             </Button>
@@ -179,7 +181,7 @@ export default function LoginPage() {
             </div>
             <div className="space-y-0.5">
               <DialogTitle className="text-base">jcyber Terms of Use and Disclaimer</DialogTitle>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 Version v1.0 · Effective date 2026-09-18 · Read all terms below before logging in
               </p>
             </div>
@@ -188,46 +190,54 @@ export default function LoginPage() {
           <div
             ref={termsBodyRef}
             onScroll={handleTermsScroll}
-            className="max-h-[60vh] space-y-5 overflow-y-auto px-6 py-5 text-sm leading-relaxed text-muted-foreground"
+            className="max-h-[60vh] space-y-5 overflow-y-auto px-6 py-5 text-muted-foreground text-sm leading-relaxed"
           >
             <p className="rounded-lg border bg-muted/40 p-3 text-foreground/80">
-              These Terms of Use and Disclaimer (the "Disclaimer") form an agreement between you and the authors and contributors of the jcyber
-              project regarding use of this software. Read and fully understand all terms before use, especially disclaimers, limitations of liability, and prohibitions highlighted in bold or colored blocks.
+              These Terms of Use and Disclaimer (the "Disclaimer") form an agreement between you and the authors and
+              contributors of the jcyber project regarding use of this software. Read and fully understand all terms
+              before use, especially disclaimers, limitations of liability, and prohibitions highlighted in bold or
+              colored blocks.
               <span className="font-medium text-foreground">
                 {" "}
-                By downloading, installing, accessing, or using this software in any way, you are deemed to have read, understood, and agreed to be bound by this Disclaimer in full.
+                By downloading, installing, accessing, or using this software in any way, you are deemed to have read,
+                understood, and agreed to be bound by this Disclaimer in full.
               </span>
             </p>
 
             <section className="space-y-1.5">
               <h4 className="flex items-center gap-2 font-medium text-foreground">
-                <span className="flex size-5 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                <span className="flex size-5 items-center justify-center rounded-md bg-muted font-semibold text-muted-foreground text-xs">
                   1
                 </span>
                 Article 1 · Definitions and open-source license
               </h4>
               <p className="pl-7">
                 This software (jcyber) is an open-source program released under the GNU Affero General Public License
-                v3.0 (AGPL-3.0). You may use, copy, modify, and distribute it under that license; however, all derivative works (including online services provided to third parties over a network) must also be open-sourced under
-                AGPL-3.0, with the complete corresponding source code made available to users. The full AGPL-3.0 terms are provided in the accompanying LICENSE file.
+                v3.0 (AGPL-3.0). You may use, copy, modify, and distribute it under that license; however, all
+                derivative works (including online services provided to third parties over a network) must also be
+                open-sourced under AGPL-3.0, with the complete corresponding source code made available to users. The
+                full AGPL-3.0 terms are provided in the accompanying LICENSE file.
               </p>
             </section>
 
             <section className="space-y-1.5">
               <h4 className="flex items-center gap-2 font-medium text-foreground">
-                <span className="flex size-5 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                <span className="flex size-5 items-center justify-center rounded-md bg-muted font-semibold text-muted-foreground text-xs">
                   2
                 </span>
                 Article 2 · Permitted use
               </h4>
               <p className="pl-7">
-                This software is provided solely for personal learning, code research, discussion of security principles, and technical validation in local, isolated environments you set up yourself. It is intended for non-offensive, non-destructive purposes such as learning, academic research, and code review. You must not use this software for any purpose other than those expressly permitted in this article.
+                This software is provided solely for personal learning, code research, discussion of security
+                principles, and technical validation in local, isolated environments you set up yourself. It is intended
+                for non-offensive, non-destructive purposes such as learning, academic research, and code review. You
+                must not use this software for any purpose other than those expressly permitted in this article.
               </p>
             </section>
 
             <section className="space-y-2">
               <h4 className="flex items-center gap-2 font-medium text-destructive">
-                <span className="flex size-5 items-center justify-center rounded-md bg-destructive/10 text-xs font-semibold text-destructive">
+                <span className="flex size-5 items-center justify-center rounded-md bg-destructive/10 font-semibold text-destructive text-xs">
                   3
                 </span>
                 <AlertTriangle className="size-4" />
@@ -235,84 +245,115 @@ export default function LoginPage() {
               </h4>
               <ul className="ml-7 list-decimal space-y-1.5 rounded-lg border border-destructive/20 bg-destructive/5 p-3 pl-8 text-foreground/80 marker:text-destructive/70">
                 <li>
-                  Scanning, probing, exploiting, or attacking any website, online service, or networked system belonging to another person or a third party is strictly prohibited (regardless of authorization or whether the Assets are your own);
+                  Scanning, probing, exploiting, or attacking any website, online service, or networked system belonging
+                  to another person or a third party is strictly prohibited (regardless of authorization or whether the
+                  Assets are your own);
                 </li>
-                <li>Using this software for any actual penetration testing, offensive or defensive engagements, red/blue team exercises, or in production environments is strictly prohibited;</li>
-                <li>Using this software for unauthorized intrusion, data theft, extortion, denial of service (DoS/DDoS), or any destructive or criminal activity is strictly prohibited;</li>
-                <li>Removing, altering, or circumventing any copyright, license, or security notices in this software or its output is strictly prohibited;</li>
-                <li>Any conduct that violates the laws, regulations, or regulatory requirements of your country or region is strictly prohibited.</li>
+                <li>
+                  Using this software for any actual penetration testing, offensive or defensive engagements, red/blue
+                  team exercises, or in production environments is strictly prohibited;
+                </li>
+                <li>
+                  Using this software for unauthorized intrusion, data theft, extortion, denial of service (DoS/DDoS),
+                  or any destructive or criminal activity is strictly prohibited;
+                </li>
+                <li>
+                  Removing, altering, or circumventing any copyright, license, or security notices in this software or
+                  its output is strictly prohibited;
+                </li>
+                <li>
+                  Any conduct that violates the laws, regulations, or regulatory requirements of your country or region
+                  is strictly prohibited.
+                </li>
               </ul>
             </section>
 
             <section className="space-y-1.5">
               <h4 className="flex items-center gap-2 font-medium text-foreground">
-                <span className="flex size-5 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                <span className="flex size-5 items-center justify-center rounded-md bg-muted font-semibold text-muted-foreground text-xs">
                   4
                 </span>
                 Article 4 · Intellectual property
               </h4>
               <p className="pl-7">
-                Copyright and related intellectual property rights in this software belong to the project authors and contributors. You are granted rights only within the scope of the AGPL-3.0
-                license. Except for rights expressly granted under that license, this Disclaimer grants no other rights, expressly or by implication.
+                Copyright and related intellectual property rights in this software belong to the project authors and
+                contributors. You are granted rights only within the scope of the AGPL-3.0 license. Except for rights
+                expressly granted under that license, this Disclaimer grants no other rights, expressly or by
+                implication.
               </p>
             </section>
 
             <section className="space-y-1.5">
               <h4 className="flex items-center gap-2 font-medium text-foreground">
-                <span className="flex size-5 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                <span className="flex size-5 items-center justify-center rounded-md bg-muted font-semibold text-muted-foreground text-xs">
                   5
                 </span>
                 Article 5 · Data and privacy
               </h4>
               <p className="pl-7">
-                This software is a self-hostable open-source program. The authors do not operate any centralized service and do not collect or upload your usage data. You control and are responsible for the legality and security of all data you generate, process, or access while using it. You bear all consequences of improper data handling.
+                This software is a self-hostable open-source program. The authors do not operate any centralized service
+                and do not collect or upload your usage data. You control and are responsible for the legality and
+                security of all data you generate, process, or access while using it. You bear all consequences of
+                improper data handling.
               </p>
             </section>
 
             <section className="space-y-1.5">
               <h4 className="flex items-center gap-2 font-medium text-foreground">
-                <span className="flex size-5 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                <span className="flex size-5 items-center justify-center rounded-md bg-muted font-semibold text-muted-foreground text-xs">
                   6
                 </span>
                 Article 6 · Compliance and legal responsibility
               </h4>
               <p className="pl-7">
-                You must comply with all laws and regulations in your country or region concerning cybersecurity, data security, personal information protection, and computer crime (in mainland China, including but not limited to the Cybersecurity Law, Data Security Law, Personal Information Protection Law, and relevant judicial interpretations).
+                You must comply with all laws and regulations in your country or region concerning cybersecurity, data
+                security, personal information protection, and computer crime (in mainland China, including but not
+                limited to the Cybersecurity Law, Data Security Law, Personal Information Protection Law, and relevant
+                judicial interpretations).
                 <span className="font-medium text-foreground">
                   {" "}
-                  You alone bear all legal responsibility and consequences arising from violations of these laws and regulations or this Disclaimer. The software authors and contributors bear no responsibility.
+                  You alone bear all legal responsibility and consequences arising from violations of these laws and
+                  regulations or this Disclaimer. The software authors and contributors bear no responsibility.
                 </span>
               </p>
             </section>
 
             <section className="space-y-1.5">
               <h4 className="flex items-center gap-2 font-medium text-foreground">
-                <span className="flex size-5 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                <span className="flex size-5 items-center justify-center rounded-md bg-muted font-semibold text-muted-foreground text-xs">
                   7
                 </span>
                 Article 7 · Disclaimer and limitation of liability
               </h4>
               <p className="pl-7">
-                This software is provided "AS IS" and "AS
-                AVAILABLE", without any express or implied warranties, including but not limited to warranties of merchantability, fitness for a particular purpose, accuracy, or non-infringement. To the maximum extent permitted by applicable law, the software authors and contributors are not liable for any direct, indirect, incidental, special, or consequential losses arising from use of or inability to use this software (whether used properly or not), including but not limited to data loss, system damage, business interruption, lost profits, or legal disputes.
+                This software is provided "AS IS" and "AS AVAILABLE", without any express or implied warranties,
+                including but not limited to warranties of merchantability, fitness for a particular purpose, accuracy,
+                or non-infringement. To the maximum extent permitted by applicable law, the software authors and
+                contributors are not liable for any direct, indirect, incidental, special, or consequential losses
+                arising from use of or inability to use this software (whether used properly or not), including but not
+                limited to data loss, system damage, business interruption, lost profits, or legal disputes.
               </p>
             </section>
 
             <section className="space-y-1.5">
               <h4 className="flex items-center gap-2 font-medium text-foreground">
-                <span className="flex size-5 items-center justify-center rounded-md bg-muted text-xs font-semibold text-muted-foreground">
+                <span className="flex size-5 items-center justify-center rounded-md bg-muted font-semibold text-muted-foreground text-xs">
                   8
                 </span>
                 Article 8 · Changes to terms and final interpretation
               </h4>
               <p className="pl-7">
-                The authors may update this Disclaimer from time to time to reflect laws, regulations, or project needs. Updated versions will be released with the project and take effect upon publication. Continued use of this software constitutes acceptance of the revised terms. To the extent permitted by law, the project authors retain the right of final interpretation of this Disclaimer. If any provision is found invalid, the remaining provisions remain effective.
+                The authors may update this Disclaimer from time to time to reflect laws, regulations, or project needs.
+                Updated versions will be released with the project and take effect upon publication. Continued use of
+                this software constitutes acceptance of the revised terms. To the extent permitted by law, the project
+                authors retain the right of final interpretation of this Disclaimer. If any provision is found invalid,
+                the remaining provisions remain effective.
               </p>
             </section>
           </div>
 
           <DialogFooter className="mx-0 mb-0 flex-col items-stretch gap-2 rounded-b-xl px-6 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-muted-foreground">
+            <p className="text-muted-foreground text-xs">
               {readToEnd ? "You have viewed all terms" : "Scroll to the bottom of the terms before confirming"}
             </p>
             <DialogClose asChild>

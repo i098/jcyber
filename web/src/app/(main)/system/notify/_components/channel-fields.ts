@@ -52,7 +52,12 @@ export const CHANNEL_FIELDS: Record<string, FieldDef[]> = {
       kind: "text",
       placeholder: "https://open.feishu.cn/open-apis/bot/v2/hook/...",
     },
-    { key: "secret", label: "Signature Verification Secret", kind: "password", help: 'Enter when "Signature Verification" is enabled for the bot; otherwise leave blank' },
+    {
+      key: "secret",
+      label: "Signature Verification Secret",
+      kind: "password",
+      help: 'Enter when "Signature Verification" is enabled for the bot; otherwise leave blank',
+    },
   ],
   wecom: [
     {
@@ -75,7 +80,12 @@ export const CHANNEL_FIELDS: Record<string, FieldDef[]> = {
         { value: "GET", label: "GET (without request body)" },
       ],
     },
-    { key: "headers", label: "Custom Headers", kind: "kv", help: "One KEY=VALUE per line, e.g. Authorization=Bearer xxx" },
+    {
+      key: "headers",
+      label: "Custom Headers",
+      kind: "kv",
+      help: "One KEY=VALUE per line, e.g. Authorization=Bearer xxx",
+    },
     {
       key: "body_template",
       label: "Request Body Template",
@@ -110,7 +120,12 @@ export const CHANNEL_FIELDS: Record<string, FieldDef[]> = {
     { key: "password", label: "Password / Authorization Code", kind: "password" },
     { key: "from", label: "Sender", kind: "text", placeholder: "jcyber@example.com" },
     { key: "to", label: "Recipients", kind: "list", help: "Separate multiple addresses with commas" },
-    { key: "tls", label: "Implicit TLS", kind: "switch", help: "Enable for port 465; leave disabled for port 587 (STARTTLS is automatic)" },
+    {
+      key: "tls",
+      label: "Implicit TLS",
+      kind: "switch",
+      help: "Enable for port 465; leave disabled for port 587 (STARTTLS is automatic)",
+    },
   ],
 };
 

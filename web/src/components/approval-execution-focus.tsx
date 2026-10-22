@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import type { Activity, InterceptExecution } from "@/lib/types";
@@ -39,7 +40,8 @@ export function useApprovalFocus({ taskId, conversationId }: { taskId?: string; 
         setState({ id, source, loading: false });
       })
       .catch((e) => {
-        if (!cancelled) setState({ id, error: (e as Error).message || "Unable to locate the original execution", loading: false });
+        if (!cancelled)
+          setState({ id, error: (e as Error).message || "Unable to locate the original execution", loading: false });
       });
     return () => {
       cancelled = true;

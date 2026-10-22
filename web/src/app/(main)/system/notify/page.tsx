@@ -59,13 +59,13 @@ export default function NotifyPage() {
         setBaseURL(m.public_base_url);
         setDigestMin(m.digest_interval_min);
       })
-      .catch((e) => toast.error("Failed to load notification settings: " + (e as Error).message));
+      .catch((e) => toast.error(`Failed to load notification settings: ${(e as Error).message}`));
     // 渠道列表加载失败要报出来：静默失败会显示成「一个渠道都没有」，
     // 用户会以为配置丢了，比直接报错更让人慌。
     api
       .notifyChannels()
       .then(setChannels)
-      .catch((e) => toast.error("Failed to load Channel list: " + (e as Error).message));
+      .catch((e) => toast.error(`Failed to load Channel list: ${(e as Error).message}`));
   }, []);
   React.useEffect(() => {
     load();
@@ -190,7 +190,7 @@ export default function NotifyPage() {
       }
       load();
     } catch (e) {
-      toast.error("Save failed: " + (e as Error).message);
+      toast.error(`Save failed: ${(e as Error).message}`);
     } finally {
       setSaving(false);
     }
@@ -204,7 +204,7 @@ export default function NotifyPage() {
       toast.success(`Test message sent (${r.latency_ms} ms). Check the group to confirm`);
     } catch (e) {
       // 后端把渠道返回的原始错误如实回传，这是排查配置的唯一线索，原样展示。
-      toast.error("Test failed: " + (e as Error).message, { duration: 12000 });
+      toast.error(`Test failed: ${(e as Error).message}`, { duration: 12000 });
     } finally {
       setTesting(false);
     }
@@ -217,7 +217,7 @@ export default function NotifyPage() {
       setOpen(false);
       load();
     } catch (e) {
-      toast.error("Delete failed: " + (e as Error).message);
+      toast.error(`Delete failed: ${(e as Error).message}`);
     }
   }
 
@@ -226,7 +226,7 @@ export default function NotifyPage() {
       await api.notifyUpdateChannel(ch.id, { enabled: !ch.enabled });
       load();
     } catch (e) {
-      toast.error("Operation failed: " + (e as Error).message);
+      toast.error(`Operation failed: ${(e as Error).message}`);
     }
   }
 
@@ -237,7 +237,7 @@ export default function NotifyPage() {
       setMeta((m) => (m ? { ...m, enabled: on } : m));
       toast.success(on ? "Notifications enabled" : "Notifications paused");
     } catch (e) {
-      toast.error("Operation failed: " + (e as Error).message);
+      toast.error(`Operation failed: ${(e as Error).message}`);
     } finally {
       setGlobalSaving(false);
     }
@@ -253,7 +253,7 @@ export default function NotifyPage() {
       toast.success("Saved");
       load();
     } catch (e) {
-      toast.error("Save failed: " + (e as Error).message);
+      toast.error(`Save failed: ${(e as Error).message}`);
     } finally {
       setGlobalSaving(false);
     }
@@ -267,9 +267,10 @@ export default function NotifyPage() {
     <div className="flex flex-1 flex-col gap-4 md:gap-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Notifications</h1>
+          <h1 className="font-semibold text-xl tracking-tight">Notifications</h1>
           <p className="text-muted-foreground text-sm">
-            Send Vulnerability notifications to DingTalk / Feishu / WeCom and other Channels · Each Channel has independent timing and filters
+            Send Vulnerability notifications to DingTalk / Feishu / WeCom and other Channels · Each Channel has
+            independent timing and filters
           </p>
         </div>
         {meta && (
@@ -289,7 +290,11 @@ export default function NotifyPage() {
 
       {meta && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          <StatTile label="Channels" value={`${meta.stats.channels_on} / ${meta.stats.channels}`} hint="Enabled / Total" />
+          <StatTile
+            label="Channels"
+            value={`${meta.stats.channels_on} / ${meta.stats.channels}`}
+            hint="Enabled / Total"
+          />
           <StatTile label="Delivered today" value={String(meta.stats.sent_today)} />
           <StatTile label="Pending" value={String(meta.stats.pending)} />
           <StatTile label="Failed" value={String(meta.stats.failed)} tone={meta.stats.failed > 0 ? "red" : undefined} />
@@ -316,7 +321,9 @@ export default function NotifyPage() {
               value={baseURL}
               onChange={(e) => setBaseURL(e.target.value)}
             />
-            <p className="text-muted-foreground text-xs">URL for the &quot;View details&quot; button in messages. Leave blank to omit the button.</p>
+            <p className="text-muted-foreground text-xs">
+              URL for the &quot;View details&quot; button in messages. Leave blank to omit the button.
+            </p>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="n-digest">Digest interval (minutes)</Label>
@@ -350,7 +357,7 @@ export default function NotifyPage() {
             <button
               type="button"
               onClick={openAdd}
-              className="text-foreground/70 border-foreground/70 hover:bg-muted/60 hover:shadow-sm flex min-h-[130px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed transition"
+              className="flex min-h-[130px] flex-col items-center justify-center gap-2 rounded-xl border border-foreground/70 border-dashed text-foreground/70 transition hover:bg-muted/60 hover:shadow-sm"
             >
               <PlusIcon className="size-6" />
               <span className="text-sm">Add Channel</span>
@@ -360,11 +367,11 @@ export default function NotifyPage() {
               <Card
                 key={ch.id}
                 onClick={() => openEdit(ch)}
-                className="hover:border-primary/60 cursor-pointer gap-3 transition hover:shadow-sm"
+                className="cursor-pointer gap-3 transition hover:border-primary/60 hover:shadow-sm"
               >
                 <CardHeader>
                   <div className="flex items-center gap-2">
-                    <BellIcon className="text-muted-foreground size-4 shrink-0" />
+                    <BellIcon className="size-4 shrink-0 text-muted-foreground" />
                     <CardTitle className="truncate text-base">{ch.name}</CardTitle>
                     {/* 卡片整体可点（进入编辑），所以这两个控件必须各自吞掉冒泡，
                         否则开关/删除会顺带触发编辑。把 stopPropagation 挂在控件自己
@@ -446,7 +453,8 @@ export default function NotifyPage() {
                 </Select>
                 {editing && (
                   <p className="text-muted-foreground text-xs">
-                    Channel type cannot be changed because each type uses different Credentials. Create a new Channel instead.
+                    Channel type cannot be changed because each type uses different Credentials. Create a new Channel
+                    instead.
                   </p>
                 )}
               </div>
@@ -463,7 +471,8 @@ export default function NotifyPage() {
 
               {fields.length === 0 ? (
                 <p className="text-muted-foreground text-sm">
-                  The form for this Channel is not defined (missing frontend CHANNEL_FIELDS entry). Add it before trying again.
+                  The form for this Channel is not defined (missing frontend CHANNEL_FIELDS entry). Add it before trying
+                  again.
                 </p>
               ) : (
                 fields.map((d) => (
@@ -489,7 +498,8 @@ export default function NotifyPage() {
                   </SelectContent>
                 </Select>
                 <p className="text-muted-foreground text-xs">
-                  For &quot;High in Real-time, everything else in a Digest&quot;, create two Channels: Real-time with a High threshold, and Digest with no severity limit.
+                  For &quot;High in Real-time, everything else in a Digest&quot;, create two Channels: Real-time with a
+                  High threshold, and Digest with no severity limit.
                 </p>
               </div>
 
@@ -509,7 +519,7 @@ export default function NotifyPage() {
               </div>
 
               <div className="border-t pt-4">
-                <p className="mb-3 text-sm font-medium">Filters (leave blank for no filtering)</p>
+                <p className="mb-3 font-medium text-sm">Filters (leave blank for no filtering)</p>
                 <div className="grid gap-4">
                   <div className="grid gap-2">
                     <Label>Minimum severity</Label>
@@ -549,7 +559,9 @@ export default function NotifyPage() {
                       value={form.excludeText}
                       onChange={(e) => setF({ excludeText: e.target.value })}
                     />
-                    <p className="text-muted-foreground text-xs">Exclusion takes precedence over inclusion when both match.</p>
+                    <p className="text-muted-foreground text-xs">
+                      Exclusion takes precedence over inclusion when both match.
+                    </p>
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="n-tasks">Limit to Task IDs</Label>
@@ -568,7 +580,9 @@ export default function NotifyPage() {
                       value={form.assetIDsText}
                       onChange={(e) => setF({ assetIDsText: e.target.value })}
                     />
-                    <p className="text-muted-foreground text-xs">Leave Tasks/Assets blank for no limit; otherwise the Vulnerability must match at least one.</p>
+                    <p className="text-muted-foreground text-xs">
+                      Leave Tasks/Assets blank for no limit; otherwise the Vulnerability must match at least one.
+                    </p>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <Switch

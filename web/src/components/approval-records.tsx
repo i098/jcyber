@@ -100,7 +100,12 @@ function ApprovalOrigin({ row, detail = false }: { row: InterceptApprovalRow; de
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const labels: Record<string, string> = { pending: "Pending Approval", allowed: "Allowed", denied: "Denied", timeout: "Timeout" };
+  const labels: Record<string, string> = {
+    pending: "Pending Approval",
+    allowed: "Allowed",
+    denied: "Denied",
+    timeout: "Timeout",
+  };
   let variant: "default" | "destructive" | "secondary" | "outline" = "outline";
   if (status === "allowed") variant = "default";
   if (status === "denied") variant = "destructive";
@@ -151,7 +156,9 @@ function CodeBlock({ label, text, truncated = false }: { label: string; text: st
       <pre className="max-h-80 min-w-0 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted/60 p-3 font-mono text-xs leading-6 [overflow-wrap:anywhere]">
         {text || "Not recorded"}
       </pre>
-      {truncated ? <p className="text-muted-foreground text-xs">Content truncated; the saved excerpt is shown above.</p> : null}
+      {truncated ? (
+        <p className="text-muted-foreground text-xs">Content truncated; the saved excerpt is shown above.</p>
+      ) : null}
     </section>
   );
 }
@@ -180,8 +187,11 @@ function ModelReviewContext({ input }: { input: InterceptReviewInput }) {
       <div className="flex flex-col gap-2">
         <h3 className="font-medium text-sm">Model Review Context</h3>
         <p className="text-muted-foreground text-xs">
-          This is a snapshot of the input actually sent to the review model. Background is only used to understand the current action; decisions are based on the review policy.
-          {input.version < 4 ? "This record uses a legacy input format and preserves the content actually sent at the time." : null}
+          This is a snapshot of the input actually sent to the review model. Background is only used to understand the
+          current action; decisions are based on the review policy.
+          {input.version < 4
+            ? "This record uses a legacy input format and preserves the content actually sent at the time."
+            : null}
         </p>
       </div>
       <CodeBlock
@@ -192,7 +202,11 @@ function ModelReviewContext({ input }: { input: InterceptReviewInput }) {
         input.background ? (
           <div className="flex min-w-0 flex-col gap-2">
             <CodeBlock
-              label={input.background.source === "user_message" ? "Background · User Message" : "Background · Worker Intent Summary (Legacy)"}
+              label={
+                input.background.source === "user_message"
+                  ? "Background · User Message"
+                  : "Background · Worker Intent Summary (Legacy)"
+              }
               text={input.background.text}
               truncated={input.background.truncated}
             />
@@ -208,17 +222,32 @@ function ModelReviewContext({ input }: { input: InterceptReviewInput }) {
       ) : (
         <>
           {input.turn_input ? (
-            <CodeBlock label="Current Turn Input (Legacy)" text={input.turn_input} truncated={input.background_truncated} />
+            <CodeBlock
+              label="Current Turn Input (Legacy)"
+              text={input.turn_input}
+              truncated={input.background_truncated}
+            />
           ) : null}
           {input.task ? (
             <>
-              <CodeBlock label="Task Description (Legacy)" text={input.task.description} truncated={input.task.truncated} />
+              <CodeBlock
+                label="Task Description (Legacy)"
+                text={input.task.description}
+                truncated={input.task.truncated}
+              />
               <CodeBlock label="Task Goal (Legacy)" text={input.task.goal} truncated={input.task.truncated} />
-              <CodeBlock label="Task Operation Constraints (Legacy)" text={JSON.stringify(input.task.constraints, null, 2)} />
+              <CodeBlock
+                label="Task Operation Constraints (Legacy)"
+                text={JSON.stringify(input.task.constraints, null, 2)}
+              />
             </>
           ) : null}
           {input.worker_intent ? (
-            <CodeBlock label="Worker Intent (Legacy)" text={input.worker_intent} truncated={input.background_truncated} />
+            <CodeBlock
+              label="Worker Intent (Legacy)"
+              text={input.worker_intent}
+              truncated={input.background_truncated}
+            />
           ) : null}
         </>
       )}
@@ -234,12 +263,18 @@ function ModelReviewContext({ input }: { input: InterceptReviewInput }) {
                 <p className="break-words font-medium text-xs">
                   {entry.tool} · {entry.status === "succeeded" ? "Succeeded" : "Failed (may have partial side effects)"}
                 </p>
-                <CodeBlock label="Historical Call Arguments" text={entry.arguments_preview} truncated={entry.truncated} />
+                <CodeBlock
+                  label="Historical Call Arguments"
+                  text={entry.arguments_preview}
+                  truncated={entry.truncated}
+                />
                 <CodeBlock label="Historical Execution Result" text={entry.result} truncated={entry.truncated} />
               </div>
             ))
           ) : (
-            <p className="text-muted-foreground text-xs">No matching historical tool execution records were provided.</p>
+            <p className="text-muted-foreground text-xs">
+              No matching historical tool execution records were provided.
+            </p>
           )}
           {input.history_truncated ? (
             <p className="text-muted-foreground text-xs">History has a limited window; some content was truncated.</p>
@@ -331,7 +366,8 @@ export function ApprovalDetail({
   const audit = detail?.audit;
   let execution = audit ? executionLabels[audit.execution_status] : "Not recorded";
   if (row.status === "pending") execution = "Not started";
-  if (audit && audit.correlation !== "exact" && audit.effective_action === "allow") execution = "No linked execution result";
+  if (audit && audit.correlation !== "exact" && audit.effective_action === "allow")
+    execution = "No linked execution result";
   const command = typeof row.tool_input?.command === "string" ? row.tool_input.command : undefined;
   let initialLabel = source(row) === "model" ? "Initial Model Decision" : "Initial Rule Decision";
   if (audit?.model_fallback) initialLabel = "Model Error Fallback";
@@ -373,7 +409,9 @@ export function ApprovalDetail({
             {current.reason?.replace(/^\[Model\]\s*/, "") || "No approval reason recorded"}
           </p>
           {audit?.decision_reason ? <p className="text-sm">{audit.decision_reason}</p> : null}
-          {audit?.effective_action ? <p className="text-sm">Final action: {actionLabels[audit.effective_action]}</p> : null}
+          {audit?.effective_action ? (
+            <p className="text-sm">Final action: {actionLabels[audit.effective_action]}</p>
+          ) : null}
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-xs">
             <dt className="text-muted-foreground">Source</dt>
             <dd className="break-words">
@@ -414,7 +452,10 @@ export function ApprovalDetail({
       {!detail && !error ? <Skeleton className="h-8 w-60" /> : null}
       {detail && !audit ? (
         <Alert>
-          <AlertDescription>No approval detail snapshot was saved for this record, so the original context, initial model decision, and execution output cannot be restored.</AlertDescription>
+          <AlertDescription>
+            No approval detail snapshot was saved for this record, so the original context, initial model decision, and
+            execution output cannot be restored.
+          </AlertDescription>
         </Alert>
       ) : null}
       {audit ? (
@@ -460,10 +501,13 @@ export function ApprovalDetail({
                       <section className="flex min-w-0 flex-col gap-3">
                         <h3 className="font-medium text-muted-foreground text-xs">Visible Session Context</h3>
                         <p className="text-muted-foreground text-xs">
-                          Session excerpt saved at {fmtTime(audit.captured_at)}. "Model Review Input" shows the content actually used by the model.
+                          Session excerpt saved at {fmtTime(audit.captured_at)}. "Model Review Input" shows the content
+                          actually used by the model.
                         </p>
                         {audit.context_truncated ? (
-                          <p className="text-muted-foreground text-xs">Only recent context was saved; some content was truncated.</p>
+                          <p className="text-muted-foreground text-xs">
+                            Only recent context was saved; some content was truncated.
+                          </p>
                         ) : null}
                         {audit.context?.length ? (
                           audit.context.map((entry, index) => (
@@ -488,7 +532,10 @@ export function ApprovalDetail({
               />
               <CodeBlock
                 label="Execution Output"
-                text={audit.output ?? (audit.execution_status === "not_executed" ? "Tool was not executed." : "No execution output yet")}
+                text={
+                  audit.output ??
+                  (audit.execution_status === "not_executed" ? "Tool was not executed." : "No execution output yet")
+                }
                 truncated={audit.output_truncated}
               />
               {audit.correlation !== "exact" ? (
@@ -681,7 +728,9 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
         // filter. Older requests must remain actionable even when newer decisions
         // fill the page or a filter would hide them.
         const [history, pending] = await Promise.allSettled([
-          taskId ? api.interceptTaskPage(taskId, page, pageSize, filter) : api.interceptHistoryPage(page, pageSize, filter),
+          taskId
+            ? api.interceptTaskPage(taskId, page, pageSize, filter)
+            : api.interceptHistoryPage(page, pageSize, filter),
           api.interceptPending(),
         ]);
         if (id !== request.current) return;
@@ -690,17 +739,17 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
           setTotal(history.value.total);
           setError("");
         } else {
-        setError((history.reason as Error).message || "Failed to load");
+          setError((history.reason as Error).message || "Failed to load");
         }
         if (pending.status === "fulfilled") {
           setPendingRows(pending.value);
           setPendingError("");
         } else {
-        setPendingError((pending.reason as Error).message || "Failed to load");
+          setPendingError((pending.reason as Error).message || "Failed to load");
         }
         if (manual) setRevision((v) => v + 1);
       } catch (e) {
-      if (id === request.current) setError((e as Error).message || "Failed to load");
+        if (id === request.current) setError((e as Error).message || "Failed to load");
       } finally {
         if (id === request.current) {
           setLoading(false);
@@ -789,7 +838,9 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
           Refresh
         </Button>
       </div>
-      <p className="text-muted-foreground text-sm">Expand a record to view the tool request, approval decision, original context, and execution results.</p>
+      <p className="text-muted-foreground text-sm">
+        Expand a record to view the tool request, approval decision, original context, and execution results.
+      </p>
       <FieldGroup className="flex-row flex-wrap items-end gap-3" aria-label="Approval record filters">
         <Field className="w-full sm:w-40">
           <FieldLabel htmlFor={`${filterID}-status`}>Approval Status</FieldLabel>
@@ -892,7 +943,13 @@ export function ApprovalRecords({ taskId }: { taskId?: string }) {
           </Empty>
         ) : null}
         {rows.length ? (
-          <ApprovalTable rows={rows} busy={deciding} decide={decide} revision={revision} label="Approval Records List" />
+          <ApprovalTable
+            rows={rows}
+            busy={deciding}
+            decide={decide}
+            revision={revision}
+            label="Approval Records List"
+          />
         ) : null}
         {!loading && !error ? (
           <TablePagination

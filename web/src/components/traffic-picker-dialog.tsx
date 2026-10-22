@@ -114,7 +114,8 @@ export function TrafficPickerDialog({
           <DialogHeader>
             <DialogTitle>Bind Traffic</DialogTitle>
             <DialogDescription>
-              Filter and select requests/responses. Selections are kept across pages. Set their purpose, description, and order after binding.
+              Filter and select requests/responses. Selections are kept across pages. Set their purpose, description,
+              and order after binding.
             </DialogDescription>
           </DialogHeader>
           <FieldGroup className="flex flex-col gap-3 sm:flex-row">

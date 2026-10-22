@@ -59,7 +59,7 @@ function KindBadge({ kind }: { kind: AssetInterceptKind }) {
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{label}</Label>
+      <Label className="font-medium text-muted-foreground text-xs uppercase tracking-wide">{label}</Label>
       {children}
       {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
     </div>
@@ -144,7 +144,7 @@ export default function AssetInterceptPage() {
         toast.success("Rule created");
       }
       setOpen(false);
-      load();
+      await load();
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -157,7 +157,7 @@ export default function AssetInterceptPage() {
     try {
       await api.deleteAssetInterceptRule(rule.id);
       toast.success("Rule deleted");
-      load();
+      await load();
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -166,7 +166,7 @@ export default function AssetInterceptPage() {
   async function handleToggle(rule: AssetInterceptRule) {
     try {
       await api.toggleAssetInterceptRule(rule.id, !rule.enabled);
-      load();
+      await load();
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -180,17 +180,18 @@ export default function AssetInterceptPage() {
       <div className="flex items-center gap-2.5">
         <BanIcon className="h-5 w-5 shrink-0" />
         <div>
-          <h1 className="text-lg font-semibold leading-tight">Asset Interception</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Global asset blocklist: matching domains / IPs / URLs / subnets are blocked, and no operations are performed on them
+          <h1 className="font-semibold text-lg leading-tight">Asset Interception</h1>
+          <p className="mt-0.5 text-muted-foreground text-sm">
+            Global asset blocklist: matching domains / IPs / URLs / subnets are blocked, and no operations are performed
+            on them
           </p>
         </div>
       </div>
 
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
-          Supports exact and fuzzy matching for domains / IPs / URLs, plus CIDR subnets; built-in fuzzy rules block government (.gov / .gov.cn) and education (.edu /
-          .edu.cn) sites by default
+        <p className="text-muted-foreground text-xs">
+          Supports exact and fuzzy matching for domains / IPs / URLs, plus CIDR subnets; built-in fuzzy rules block
+          government (.gov / .gov.cn) and education (.edu / .edu.cn) sites by default
         </p>
         <Button onClick={openNew} size="sm" className="shrink-0">
           <PlusIcon className="h-4 w-4" />
@@ -201,11 +202,11 @@ export default function AssetInterceptPage() {
       <Card>
         <CardContent className="p-0">
           {loading ? (
-            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
+            <p className="p-6 text-muted-foreground text-sm">Loading…</p>
           ) : rules.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
               <BanIcon className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-sm text-muted-foreground">No asset interception rules</p>
+              <p className="text-muted-foreground text-sm">No asset interception rules</p>
               <Button size="sm" variant="outline" onClick={openNew}>
                 <PlusIcon className="h-4 w-4" />
                 Create First Rule
@@ -229,11 +230,11 @@ export default function AssetInterceptPage() {
                       <KindBadge kind={rule.kind} />
                     </TableCell>
                     <TableCell className="max-w-[280px]">
-                      <code className="block truncate rounded bg-muted px-1.5 py-0.5 text-xs font-mono">
+                      <code className="block truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
                         {rule.pattern}
                       </code>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
+                    <TableCell className="text-muted-foreground text-sm">
                       <div className="flex items-center gap-1.5">
                         {rule.builtin && (
                           <Badge variant="secondary" className="shrink-0 px-1 py-0 text-[10px]">
@@ -274,10 +275,12 @@ export default function AssetInterceptPage() {
         <SheetContent side="right" className="flex flex-col gap-0 p-0 sm:max-w-md">
           <SheetHeader className="border-b px-6 py-4">
             <SheetTitle>{editing ? "Edit Asset Interception Rule" : "New Asset Interception Rule"}</SheetTitle>
-            <SheetDescription className="text-xs">Target assets matching this rule are blocked globally</SheetDescription>
+            <SheetDescription className="text-xs">
+              Target assets matching this rule are blocked globally
+            </SheetDescription>
           </SheetHeader>
 
-          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
             <Field label="Match Type">
               <Select value={form.kind} onValueChange={(v) => set({ kind: v as AssetInterceptKind })}>
                 <SelectTrigger>
@@ -286,7 +289,7 @@ export default function AssetInterceptPage() {
                 <SelectContent>
                   {KIND_GROUPS.map((g) => (
                     <React.Fragment key={g}>
-                      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      <div className="px-2 py-1 font-semibold text-[10px] text-muted-foreground uppercase tracking-wider">
                         {g}
                       </div>
                       {KIND_OPTIONS.filter((o) => o.group === g).map((o) => (
@@ -337,7 +340,7 @@ export default function AssetInterceptPage() {
             </div>
           </div>
 
-          <SheetFooter className="border-t px-6 py-4 flex-row justify-end gap-2">
+          <SheetFooter className="flex-row justify-end gap-2 border-t px-6 py-4">
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>

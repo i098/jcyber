@@ -34,8 +34,9 @@ export function FindingLineageView({ findingId }: { findingId: string }) {
 
   if (loaded && nodes.length === 0) {
     return (
-      <p className="text-muted-foreground p-6 text-sm">
-        No exploration path to display (this Vulnerability has no linked exploration node, or its Task has been deleted).
+      <p className="p-6 text-muted-foreground text-sm">
+        No exploration path to display (this Vulnerability has no linked exploration node, or its Task has been
+        deleted).
       </p>
     );
   }

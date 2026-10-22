@@ -313,10 +313,17 @@ export function MentionTextarea({ value, onValueChange, onKeyDown, className, in
               {loadingMore && <span role="status">Loading more...</span>}
               {!loadingMore && nextCursor && (
                 <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={loadMore}>
-                  {pageError ? "Load failed. Click to retry" : `Showing ${items.length} records. Scroll down to load more`}
+                  {pageError
+                    ? "Load failed. Click to retry"
+                    : `Showing ${items.length} records. Scroll down to load more`}
                 </button>
               )}
-              {!loadingMore && !nextCursor && !loading && !error && items.length > 0 && `Showing all ${items.length} records`}
+              {!loadingMore &&
+                !nextCursor &&
+                !loading &&
+                !error &&
+                items.length > 0 &&
+                `Showing all ${items.length} records`}
               {!loadingMore &&
                 !nextCursor &&
                 (loading || !!error || items.length === 0) &&

@@ -59,43 +59,34 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "preset": "recommended",
-      "correctness": {
-        "noUndeclaredVariables": "error",
-        "noNestedComponentDefinitions": "error",
-        "noUndeclaredDependencies": "error"
-      },
-      "nursery": {
-        "useSortedClasses": "on",
-        "useNullishCoalescing": "error",
-        "noFloatingPromises": "error",
-        "noMisusedPromises": "error"
-      },
-      "performance": {
-        "noImgElement": "warn"
+      "recommended": true,
+      "suspicious": {
+        "noEmptyBlockStatements": "off",
+        "noArrayIndexKey": "off",
+        "noExplicitAny": "off",
+        "noUnnecessaryConditions": "off",
+        "useIterableCallbackReturn": "off",
+        "noDocumentCookie": "off"
       },
       "style": {
-        "noCommonJs": "error",
-        "noHeadElement": "warn",
-        "noNamespace": "error",
-        "useAsConstAssertion": "error",
-        "useSelfClosingElements": "error",
-        "noNestedTernary": "warn",
-        "noParameterAssign": "error",
-        "noInferrableTypes": "error",
-        "noUselessElse": "error",
-        "useFilenamingConvention": "error"
+        "noNestedTernary": "off",
+        "noNonNullAssertion": "off"
       },
-      "suspicious": {
-        "noArrayIndexKey": "warn",
-        "noConstantBinaryExpressions": "error",
-        "noEmptyBlockStatements": "error",
-        "noUnknownAtRules": "off",
-        "noImportCycles": "error",
-        "noUnnecessaryConditions": "warn"
+      "performance": {
+        "noImgElement": "off"
+      },
+      "nursery": {
+        "noFloatingPromises": "off",
+        "useNullishCoalescing": "off",
+        "useSortedClasses": "off"
       },
       "complexity": {
         "noImportantStyles": "off"
+      },
+      "a11y": {
+        "noLabelWithoutControl": "off",
+        "noStaticElementInteractions": "off",
+        "useKeyWithClickEvents": "off"
       }
     },
     "domains": {

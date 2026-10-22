@@ -85,7 +85,9 @@ export function FindingRetestPanel({
       <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col gap-1.5">
           <CardTitle>Vulnerability Retest</CardTitle>
-          <CardDescription>Verify the current status in a separate session and retain the conclusions and evidence from each retest.</CardDescription>
+          <CardDescription>
+            Verify the current status in a separate session and retain the conclusions and evidence from each retest.
+          </CardDescription>
         </div>
         {running?.conversation_id != null ? (
           <Button asChild variant="outline" size="sm">
@@ -118,7 +120,9 @@ export function FindingRetestPanel({
           <Empty>
             <EmptyHeader>
               <EmptyTitle>No retest records yet</EmptyTitle>
-              <EmptyDescription>After deploying a fix, start a retest to compare the new and previous evidence.</EmptyDescription>
+              <EmptyDescription>
+                After deploying a fix, start a retest to compare the new and previous evidence.
+              </EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : null}

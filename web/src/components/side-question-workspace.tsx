@@ -65,7 +65,13 @@ function SidePanel({
   useEffect(() => {
     if (pinned.current && viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight;
   }, [tail?.answer, tail?.id]);
-  const status = { running: "Answering", completed: "Done", failed: "Failed", cancelled: "Stopped", interrupted: "Interrupted" };
+  const status = {
+    running: "Answering",
+    completed: "Done",
+    failed: "Failed",
+    cancelled: "Stopped",
+    interrupted: "Interrupted",
+  };
   return (
     <section className="flex h-full min-h-0 flex-col bg-background" aria-label="Side question panel">
       <div className="flex items-center gap-2 border-b p-3">
@@ -84,7 +90,12 @@ function SidePanel({
         >
           <Trash2Icon />
         </Button>
-        <Button variant="ghost" size="icon-sm" onClick={() => side.setOpen(false)} aria-label="Close side question panel">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => side.setOpen(false)}
+          aria-label="Close side question panel"
+        >
           <XIcon />
         </Button>
       </div>
@@ -116,7 +127,9 @@ function SidePanel({
           <Empty>
             <EmptyHeader>
               <EmptyTitle>Ask a question anytime</EmptyTitle>
-              <EmptyDescription>Answers use the current Agent context while the main task keeps running.</EmptyDescription>
+              <EmptyDescription>
+                Answers use the current Agent context while the main task keeps running.
+              </EmptyDescription>
             </EmptyHeader>
           </Empty>
         )}
@@ -204,14 +217,17 @@ function SidePanel({
         </InputGroup>
       </div>
       {inlineComposer && (
-        <div className="shrink-0 truncate px-3 pt-0.5 pb-1 text-muted-foreground text-xs">Independent Q&A · No Tool Runs</div>
+        <div className="shrink-0 truncate px-3 pt-0.5 pb-1 text-muted-foreground text-xs">
+          Independent Q&A · No Tool Runs
+        </div>
       )}
       <AlertDialog open={confirm} onOpenChange={setConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Clear side question history?</AlertDialogTitle>
             <AlertDialogDescription>
-              Delete the side questions for this Agent and stop any answer being generated. The main Session and context snapshot will be kept.
+              Delete the side questions for this Agent and stop any answer being generated. The main Session and context
+              snapshot will be kept.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
