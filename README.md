@@ -1,170 +1,123 @@
-<p align="center">
-  <img src="web/public/logo.png" height="90" alt="jcyber" />
-</p>
+<h1 align="center">🔎 jcyber</h1>
 
-<h1 align="center">jcyber</h1>
+<div align="center">
 
-<p align="center">
-  <strong>An autonomous penetration testing console — point it at an authorized target,<br/>
-  it decomposes the goal, explores, verifies, and writes the report.</strong>
-</p>
+**Point it at a web app, it maps the thing, verifies what it finds, and writes it up, enjoy!**
 
-<p align="center">
-  <a href="https://golang.org/doc/devel/release.html"><img src="https://img.shields.io/badge/go-1.26-00ADD8.svg?logo=go" alt="Go 1.26" /></a>
-  <a href="https://github.com/i098/jcyber/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL%203.0-blue.svg" alt="License: AGPL-3.0" /></a>
-  <a href="https://api-docs.deepseek.com/"><img src="https://img.shields.io/badge/engine-DeepSeek%20V4.1-4D6BFE.svg" alt="Engine: DeepSeek V4.1" /></a>
-  <a href="http://localhost:8787"><img src="https://img.shields.io/badge/console-localhost%3A8787-22d3ee.svg" alt="Console" /></a>
-</p>
+[![Go](https://img.shields.io/badge/go-1.26-00ADD8?style=for-the-badge&logo=go)](https://golang.org)
+[![License: AGPL-3.0](https://img.shields.io/badge/AGPL--3.0-0d9488?style=for-the-badge)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/i098/jcyber?style=for-the-badge&logo=github&color=d97706)](https://github.com/i098/jcyber/stargazers)
 
-> **Use it only on assets you are authorized to test.** jcyber is a pentest
-> console, not a scanner you point at the internet.
+[Quick start](#quick-start) · [Your first run](#your-first-run) · [Features](#features) · [How it works](#how-it-works)
 
----
+</div>
 
-## What is jcyber?
+## Quick start
 
-jcyber runs a pentest the way a small team would: a **planner** reads the
-state of the engagement and dispatches one-sentence **intents** to **workers**,
-each worker explores a single intent against the target, and everything it
-confirms — assets, facts, credentials, vulnerabilities — is written back into a
-dual knowledge graph (the target's technical topology + the goals of the
-engagement). Workers don't just find things; they **verify** them, and only
-verified findings get registered.
+Do you already have Postgres?
 
-Around that engine, jcyber is the console a real engagement needs: a
-recording **proxy** captures every request so each finding carries the traffic
-that proves it, a **report agent** writes the Markdown report the moment a
-finding lands, a **retest agent** re-verifies findings claimed fixed, and
-**interception rules** hold destructive commands for human approval. It speaks
-Anthropic or any OpenAI-compatible API — DeepSeek V4.1 is a good default —
-and keeps the whole loop in English.
-
-## The idea behind it
-
-**Verify, then claim.** A finding only exists if the agent actually triggered
-it and captured evidence. Version matches and "looks injectable" never count.
-
-**Evidence is the product.** Every request and response is recorded, bound to
-the finding it proves, and quoted in the report. A finding without traffic is
-a hunch.
-
-**The human stays in the loop.** Chat with the running task, inject hints
-mid-flight, and approve the dangerous stuff. Autonomy for the crawling,
-judgment for the payload that deletes a row.
-
-**Stealth is a default, not a plugin.** Workers are instructed to look like
-an ordinary browser — realistic UAs, cookie reuse, randomized human pacing —
-and the console binds to localhost. How loud you are is an operator decision.
-
-## Quickstart
+**No:** run this on your machine:
 
 ```bash
-# 1 · Postgres
 docker run -d --name jcyber-pg -p 127.0.0.1:5432:5432 \
   -e POSTGRES_USER=jcyber -e POSTGRES_PASSWORD=jcyber -e POSTGRES_DB=jcyber \
   postgres:16-alpine
+```
 
-# 2 · Build (frontend is embedded into a single binary)
+**Yes:** skip that and point the DSN in the run command at it.
+
+Then build the one binary, frontend included, and start it:
+
+```bash
 cd web && bun install && bun run build:static && cd ..
 mkdir -p server/webui && cp -r web/out server/webui/dist
 CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -tags embedui -o jcyber ./cmd/apagent
 
-# 3 · Run
 JCYBER_PG_DSN='postgres://jcyber:jcyber@127.0.0.1:5432/jcyber?sslmode=disable' \
   ./jcyber -addr 127.0.0.1:8787 -proxy 127.0.0.1:8788
 ```
 
-Open **http://localhost:8787** — the first visit sets the admin password
-(username `jcyber`). Then plug in a model: **System → LLM** → fill provider
-(`openai`), base URL, model, and key — e.g. DeepSeek `https://api.deepseek.com`
-/ `deepseek-flash` — or just export `ANTHROPIC_API_KEY` before starting.
+Open http://localhost:8787 and set the admin password on the first visit
+(username `jcyber`). The console binds to localhost; pass `-addr :8787` only
+if you mean to expose it.
 
-## Your first pentest
+Plug in a model under **System → LLM**: provider, base URL, model, key.
+DeepSeek works well (`https://api.deepseek.com`, `deepseek-flash`), or export
+`ANTHROPIC_API_KEY` before starting and the engine picks it up.
 
-You're staring at the console. Here's the path from zero to a report:
+## Your first run
 
-1. **Check the engine.** *System → LLM* should show your profile as active
-   (green). If not, create it there — provider, base URL, model, key — and
-   hit test.
-2. **Create the task.** *Tasks → New Task* (top right). Give it a name and a
-   **goal** written like an engagement objective, e.g.
-   *"Enumerate http://testphp.example.com and find verified exploitable
-   vulnerabilities; register each with evidence."* The goal is what the
-   engine decomposes — vague goals wander.
-3. **Watch the loop.** Open the task: *Overview* shows the graph of
-   intents/facts growing; *Sessions* shows each worker's live tool calls;
-   *Coverage* shows which assets have been touched. You are the lead — the
-   planner is dispatching, workers are crawling.
-4. **Steer if needed.** *Chat* with the task: give a nudge ("focus on the
-   API under /api/v2"), add an intent with high priority, or pause it.
-   Workers pick up hints on their next round.
-5. **Approve the dangerous stuff.** If a worker wants to run something your
-   interception rules flag (deletes, writes, state-changing calls), the run
-   pauses and the approval appears in *Approval Records* — with the model's
-   read of what it does and what happens on success.
-6. **Read findings.** *Findings* lists everything verified, severity-tagged,
-   with bound traffic evidence. Open one: the Markdown report (written by the
-   report agent), reproduction steps, and the request/response pairs that
-   prove it.
-7. **Retest when fixed.** From a finding's detail page, launch a retest —
-   an independent agent re-reads the original evidence and saves its own
-   verdict.
+1. **Check the engine.** *System → LLM* shows your profile as active, in
+   green. If not, fill the form there and hit test.
+2. **Create a task.** *Tasks → New Task*, top right. Write the goal like an
+   outcome, not a wish: "Map http://testphp.example.com and register verified
+   findings with evidence." The engine decomposes the goal; vague goals
+   wander.
+3. **Watch the loop.** *Overview* shows the graph of intents and facts
+   growing. *Sessions* shows each worker's live tool calls. *Coverage* shows
+   which assets got touched.
+4. **Steer.** *Chat* with the task: nudge it ("focus on the API under
+   /api/v2"), add an intent with high priority, or pause it. Workers pick up
+   hints on their next round.
+5. **Approve the risky stuff.** A worker wanting to run something the rules
+   flag (deletes, writes, state-changing calls) pauses, and the call lands in
+   *Approval Records* with the model's read of what it does.
+6. **Read the findings.** *Findings* lists everything verified, severity-tagged.
+   Open one for the Markdown writeup, the steps to reproduce it, and the
+   request and response pairs that prove it.
+7. **Re-verify.** From a finding's page, launch a retest: an independent agent
+   re-reads the original evidence and saves its own verdict.
 
-Real-time everything: dashboard token usage, *Traffic* for the raw recorded
-proxy stream, *Logs* for the backend.
+## Features
 
-## What's in the box
+- **Planner and workers:** an event-driven planner hands one-sentence intents
+  to workers; each worker takes one, exercises the target, writes back facts,
+  assets, and findings.
+- **Dual knowledge graph:** the target's topology and the task's goals live in
+  Postgres, so multi-step chains keep their order across rounds.
+- **Evidence-first findings:** every request and response is recorded by the
+  proxy and bound to the finding it proves, in order. A finding without
+  evidence is a hunch.
+- **Reports and retests:** a report agent writes the Markdown writeup per
+  finding; a retest agent re-reads the original evidence and saves its own
+  verdict.
+- **Stealth discipline:** workers present as an ordinary browser: realistic
+  UAs, cookie reuse, randomized human pacing, minimum request counts.
+- **Any OpenAI-compatible model:** provider pool with health and failover,
+  per-role bindings, reasoning effort per role.
+- **Approvals:** deny or ask rules hold state-changing commands for a human,
+  with model-judged fallback approval.
+- **Skills and MCP:** drop-in `SKILL.md` playbooks (api-recon, playwright)
+  and remote MCP servers, editable from the console.
+- **Asset sync:** pull assets from ScopeSentry by project or task.
+- **One-click update:** SHA256-verified self-update with rollback.
 
-**The engine**
+## How it works
 
-- ✅ **Dual knowledge graph** — target topology + engagement goals in
-  Postgres, event-driven planner over a shared todolist for multi-step chains
-- ✅ **Workers with a stealth discipline** — browser-like UAs, cookie reuse,
-  randomized human-scale pacing, minimum-viable request counts
-- ✅ **Any OpenAI-compatible LLM** — provider pool with health, failover, and
-  per-role bindings (e.g. `max` reasoning for workers, `high` for chat)
-- ✅ **Skills & MCP** — drop-in `SKILL.md` playbooks (api-recon, playwright)
-  and remote MCP servers, editable from the console
+A planner reads the task graph and hands one-sentence intents to workers. Each
+worker takes one intent, exercises the target, and writes what it confirms back
+to the graph. A finding only counts when the worker actually triggered it and
+captured the evidence; version matches never count. Every request flows through
+the recording proxy on `:8788`, so a finding carries the request and response
+that prove it, in reproduction order. You watch from the console, steer through
+chat, and approve whatever the rules flag.
 
-**Evidence & reporting**
+## Repository layout
 
-- ✅ **Recording proxy** — every request/response captured on `:8788` and
-  searchable (`traffic_search`), bound to findings in reproduction order
-- ✅ **Report agent** — structured Markdown report per finding, saved with the
-  evidence version it was written against
-- ✅ **Retest agent** — independent re-verification with its own verdict
-- ✅ **Findings push** — notify DingTalk / Feishu / WeCom / Telegram /
-  Webhook / Email, realtime or digest
+- [`agent/`](agent/): planner, workers, prompt catalog, tools
+- [`server/`](server/): HTTP API, orchestration, console backend
+- [`db/`](db/): Postgres schema and stores
+- [`traffic/`](traffic/): recording proxy and evidence
+- [`skills/`](skills/): drop-in `SKILL.md` playbooks
+- [`web/`](web/): the Next.js console
+- [`cmd/apagent/`](cmd/apagent/): entrypoint
 
-**Control plane**
+## Built with
 
-- ✅ **Interception & approvals** — deny/ask rules for destructive commands,
-  model-judged fallback approval with full detail cards
-- ✅ **Asset sync** — pull assets from ScopeSentry by project or task
-- ✅ **One-click update** — SHA256-verified self-update with rollback
-- ✅ **Localhost by default** — the console binds `127.0.0.1`; expose it
-  only if you mean to
-
-## Configuration
-
-| Env var | Purpose |
-|---|---|
-| `JCYBER_PG_DSN` | Postgres DSN (required) |
-| `JCYBER_LLM_PROVIDER` / `JCYBER_LLM_MODEL` / `JCYBER_LLM_BASE_URL` | LLM defaults (or configure in UI) |
-| `JCYBER_LLM_PROXY` | Outbound proxy for LLM traffic |
-| `JCYBER_NOTIFY_ALLOW_LOCAL=1` | Allow notification delivery to loopback/private IPs |
-
-Flags: `-addr` (HTTP, default `127.0.0.1:8787`), `-proxy` (recording proxy,
-default `127.0.0.1:8788`), `-data` (SQLite/jwt.key dir, default `data/`).
-
-## Development
-
-```bash
-go test ./...          # hermetic suite (SQLite)
-cd web && bun run check
-```
+Built on Go, Next.js, and AGPL-3.0 open-source components: see
+[NOTICE](NOTICE).
 
 ## License
 
-AGPL-3.0 — see [LICENSE](LICENSE). Point it only at assets you're allowed to
+AGPL-3.0, see [LICENSE](LICENSE). Point it only at targets you are allowed to
 test.
