@@ -29,28 +29,26 @@
 
 ## Quick start
 
-One script does the lot: Postgres in Docker, the one binary built with the
-console embedded, then running on http://127.0.0.1:8787. Needs `docker`,
-`go` (>= 1.26) and `bun` or `npm` on the machine.
+1. **Clone:**
 
-```bash
-git clone https://github.com/i098/jcyber.git && cd jcyber
-./install.sh
-```
+   ```bash
+   git clone https://github.com/i098/jcyber.git && cd jcyber
+   ```
 
-Already have Postgres? Skip the container and point the script at it:
+2. **Run the script** — it bundles Postgres (an existing container, a new one
+   via docker, or a local install if there's no docker) and builds the one
+   binary with the console embedded:
 
-```bash
-JCYBER_PG_DSN='postgres://user:pass@host:5432/db?sslmode=disable' ./install.sh
-```
+   ```bash
+   ./install.sh
+   ```
 
-Open http://localhost:8787 and set the admin password on the first visit
-(username `jcyber`). The console binds to localhost; pass `-addr :8787` only
-if you mean to expose it.
+3. **Open http://localhost:8787**, set the admin password (username `jcyber`),
+   and add a model under **System → LLM** — DeepSeek works well
+   (`https://api.deepseek.com`, `deepseek-flash`), or export `ANTHROPIC_API_KEY`
+   before starting and the engine picks it up.
 
-Plug in a model under **System → LLM**: provider, base URL, model, key.
-DeepSeek works well (`https://api.deepseek.com`, `deepseek-flash`), or export
-`ANTHROPIC_API_KEY` before starting and the engine picks it up.
+The console binds to localhost; pass `-addr :8787` only if you mean to expose it.
 
 For agent-assisted setup, give your coding agent this instruction:
 
