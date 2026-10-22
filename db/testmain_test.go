@@ -14,6 +14,7 @@ import (
 // avoid cross-package cleanup races (e.g. DELETE FROM assets WHERE id > X
 // from one package deleting assets created by another).
 func TestMain(m *testing.M) {
+	EnsureTestDB() // never run against a console DB
 	dsn, _, err := DSN()
 	if err != nil {
 		// No DB configured — tests that need PG will skip themselves.
@@ -28,5 +29,6 @@ func TestMain(m *testing.M) {
 		os.Exit(m.Run())
 	}
 	defer conn.Exec(`SELECT pg_advisory_unlock(7337741002)`) //nolint:errcheck
+	ResetTestSchema() // clean start per package run — after the lock, never under a parallel package
 	os.Exit(m.Run())
 }

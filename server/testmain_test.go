@@ -13,6 +13,7 @@ import (
 // server test suite so cross-package DELETE cleanup races with db/agent
 // packages are avoided when running `go test ./...`.
 func TestMain(m *testing.M) {
+	db.EnsureTestDB() // never run against a console DB
 	dsn, _, err := db.DSN()
 	if err != nil {
 		os.Exit(m.Run())
@@ -26,5 +27,6 @@ func TestMain(m *testing.M) {
 		os.Exit(m.Run())
 	}
 	defer conn.Exec(`SELECT pg_advisory_unlock(7337741002)`) //nolint:errcheck
+	db.ResetTestSchema() // clean start per package run — after the lock
 	os.Exit(m.Run())
 }
