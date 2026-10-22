@@ -1,0 +1,128 @@
+// Centralised status → color/label semantics, reused across the whole app.
+// Spec §8.3: 意图 / 覆盖 / 任务 / 严重度 each have a consistent color set.
+
+export type Tone = "neutral" | "blue" | "green" | "amber" | "red" | "rose" | "violet" | "slate";
+
+export const toneClasses: Record<Tone, string> = {
+  neutral: "bg-muted text-muted-foreground border-transparent",
+  blue: "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/20",
+  green: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+  amber: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/20",
+  red: "bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20",
+  // rose 用作「严重」——实心高强调,视觉上明显高于「高危」的软红描边。
+  rose: "bg-rose-600 text-white border-rose-600 dark:bg-rose-600 dark:text-white",
+  violet: "bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/20",
+  slate: "bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/20",
+};
+
+export const toneDot: Record<Tone, string> = {
+  neutral: "bg-muted-foreground",
+  blue: "bg-blue-500",
+  green: "bg-emerald-500",
+  amber: "bg-amber-500",
+  red: "bg-red-500",
+  rose: "bg-white",
+  violet: "bg-violet-500",
+  slate: "bg-slate-500",
+};
+
+interface StatusMeta {
+  label: string;
+  tone: Tone;
+}
+
+const intent: Record<string, StatusMeta> = {
+  open: { label: "Unclaimed", tone: "slate" },
+  running: { label: "Running", tone: "blue" },
+  paused: { label: "Paused", tone: "amber" },
+  done: { label: "Done", tone: "green" },
+  // blocked = 模型/API/网络故障重试用尽，这条意图基本没真正探成（非目标拦截）。
+  blocked: { label: "Execution Error", tone: "red" },
+  // exhausted = 达到步数/时间预算被中途掐断、只写回部分结果（非方向已探尽）。
+  exhausted: { label: "Budget Exhausted", tone: "violet" },
+  // stopped = 历史软删除状态（保留,历史数据）。
+  stopped: { label: "Stopped", tone: "slate" },
+  // deleted = 用户假删除了该意图（保留节点与血缘，删除原因见 delete_reason 字段）。
+  deleted: { label: "Deleted", tone: "slate" },
+};
+
+const task: Record<string, StatusMeta> = {
+  created: { label: "Created", tone: "slate" },
+  queued: { label: "Queued", tone: "amber" },
+  running: { label: "Running", tone: "blue" },
+  paused: { label: "Paused", tone: "amber" },
+  done: { label: "Done", tone: "green" },
+  failed: { label: "Failed", tone: "red" },
+  timeout: { label: "Timeout", tone: "amber" },
+};
+
+const severity: Record<string, StatusMeta> = {
+  critical: { label: "Critical", tone: "rose" },
+  high: { label: "High", tone: "red" },
+  medium: { label: "Medium", tone: "amber" },
+  low: { label: "Low", tone: "slate" },
+};
+
+const finding: Record<string, StatusMeta> = {
+  pending: { label: "Pending", tone: "amber" },
+  in_progress: { label: "In Progress", tone: "blue" },
+  confirmed: { label: "Confirmed", tone: "red" },
+  resolved: { label: "Resolved", tone: "green" },
+  fixed: { label: "Fixed", tone: "green" },
+  false_positive: { label: "False Positive", tone: "slate" },
+  ignored: { label: "Ignored", tone: "neutral" },
+  duplicate: { label: "Duplicate", tone: "neutral" },
+  risk_accepted: { label: "Risk Accepted", tone: "violet" },
+};
+
+const engine: Record<string, StatusMeta> = {
+  exploring: { label: "Exploring", tone: "blue" },
+  paused: { label: "Paused", tone: "amber" },
+  stalled: { label: "Stalled", tone: "red" },
+  idle: { label: "Idle", tone: "neutral" },
+};
+
+const goal: Record<string, StatusMeta> = {
+  open: { label: "In Progress", tone: "blue" },
+  met: { label: "Achieved", tone: "green" },
+  abandoned: { label: "Abandoned", tone: "slate" },
+};
+
+const audit: Record<string, StatusMeta> = {
+  allow: { label: "Allow", tone: "green" },
+  block: { label: "Interception", tone: "red" },
+};
+
+const node: Record<string, StatusMeta> = {
+  observed: { label: "Observed", tone: "slate" },
+  confirmed: { label: "Confirmed", tone: "green" },
+  tombstoned: { label: "Discarded", tone: "neutral" },
+};
+
+// 推送投递状态。sending 用 blue 而不是 amber：它不是「有问题」，
+// 而是「已被领取、正在发」，与 pending 的等待语义要能区分开。
+const delivery: Record<string, StatusMeta> = {
+  pending: { label: "Pending", tone: "amber" },
+  sending: { label: "Sending", tone: "blue" },
+  sent: { label: "Delivered", tone: "green" },
+  failed: { label: "Failed", tone: "red" },
+  skipped: { label: "Skipped", tone: "neutral" },
+};
+
+const maps = {
+  intent,
+  task,
+  severity,
+  finding,
+  engine,
+  goal,
+  audit,
+  node,
+  delivery,
+} as const;
+
+export type StatusDomain = keyof typeof maps;
+
+export function statusMeta(domain: StatusDomain, key: string): StatusMeta {
+  return maps[domain][key] ?? { label: key, tone: "neutral" };
+}
