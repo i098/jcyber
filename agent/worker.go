@@ -278,7 +278,8 @@ func stealthSpec() string {
 	return "\n\n**Operational stealth (default discipline)**:\n" +
 		"- Present HTTP requests (curl/scripts) as an ordinary current browser: use a realistic User-Agent (e.g. current Chrome on a common OS) and ordinary Accept/Accept-Language headers; never leave default tool UAs (curl/python-requests) where a browser is plausible.\n" +
 		"- Reuse session cookies consistently within a logical session; do not re-authenticate for every request.\n" +
-		"- Pace requests with randomized, human-scale delays; never fixed-interval bursts. Prefer business-hours pacing for large enumerations; spread wide scans instead of sequential hammering.\n" +
+		"- Pace requests with randomized, human-scale delays; never fixed-interval bursts. This binds scripts you write too: put a randomized sleep (0.5-3s) inside loops instead of tight iteration. Only exceed browsing speed when the task goal explicitly prioritizes speed over subtlety.\n" +
+		"- Sample and verify rather than walking an entire ID or path range: confirm the pattern on a few values, then stop. Exhaust a full range only when completeness is itself the goal.\n" +
 		"- Send the minimum requests that prove the point: targeted checks over full-range scans; stop enumerating once the goal is met.\n" +
 		"- If a target rate-limits or responds slowly, back off and slow down instead of retrying harder."
 }
