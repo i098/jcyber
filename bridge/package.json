@@ -8,6 +8,7 @@
     "dev": "bun --watch src/index.ts"
   },
   "dependencies": {
+    "openai": "^7.42.0",
     "spectrum-ts": "^12.13.0"
   },
   "devDependencies": {
