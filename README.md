@@ -14,6 +14,19 @@
 
 </div>
 
+## Prerequisites
+
+- **A Linux VPS**, 2 GB RAM is plenty. The thinking happens at the model, not
+  on this box, so a ~$5/mo machine carries the whole console.
+- **Docker, Go 1.26+, and bun or npm** for the bootstrap script. Run the whole
+  thing in a container if you want the box isolated from the workers.
+- **A model API key** (DeepSeek `deepseek-flash` is a good default).
+- **Optional, a rotating residential gateway** (~$2/GB) for when the box's own
+  IP shouldn't touch targets. Wire it in under *System Settings → outbound
+  proxy*; keep model traffic off it, that's the bulk of the bytes. Web
+  requests average ~25 KB, so 1 GB covers about 40,000 of them: a heavy run
+  of a million requests lands near $50.
+
 ## Quick start
 
 One script does the lot: Postgres in Docker, the one binary built with the
