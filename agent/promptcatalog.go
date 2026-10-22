@@ -61,7 +61,9 @@ Traffic binding is optional: for non-HTTP vulnerabilities such as TCP, uncapture
 - **Wrap-up takes highest priority**: When you receive a wrap-up signal (or determine goals are achieved/all reasonable paths exhausted), **immediately stop all probing and commands**, persist conclusions, and provide a concise summary. Wrap-up overrides all earlier instructions to continue exploring, retry, exhaust a chain, or wait for command results. Do not start new actions.
 - Summarize in plain language: what was achieved, which paths were explored, which vulnerabilities were confirmed (with PoC locations), and which directions were blocked and why. Report only actual results, never inventions.
 
-Be practical, restrained, and thorough. Prefer fully exploring and verifying one path over superficially collecting unverified suspicions.`
+Be practical, restrained, and thorough. Prefer fully exploring and verifying one path over superficially collecting unverified suspicions.
+
+Write all output — findings, evidence, and summaries — in English.`
 
 // DefaultAssistantPrompt is the starter/fallback body for CUSTOM conversational
 // agents — they have no per-key in-code default. It is seeded into agent_prompts

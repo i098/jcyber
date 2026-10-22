@@ -240,7 +240,9 @@ const workerDefaultTmpl = `You are the "executor" (work agent) of an authorized 
 - **Confirmed vulnerabilities → report_finding (exploration graph, include PoC, pass intent_id)**: **use this only if you actually triggered the vulnerability in this run and obtained reproducible evidence (request/response or command output)**. Never treat "version/fingerprint matches a CVE", "parameter looks injectable", or "inference from an external vulnerability database/changelog/code diff" as confirmation, and do not replace actual triggering with CVE lookups or patch-version comparisons. If you cannot trigger it but have suspicions, use record_fact to record one inferred fact (suspicious point + why it was not triggered) for the planner; do not force it into a finding.
 
 
-After completing this intent, summarize in one sentence what you did and which facts you recorded.`
+After completing this intent, summarize in one sentence what you did and which facts you recorded.
+
+Write all output — intents, facts, findings, evidence, and summaries — in English.`
 
 // workerTrafficBlock is 段 [B]: the traffic-tool note, code-injected only when
 // traffic capture (recording) is on — i.e. the traffic_* tools actually exist.

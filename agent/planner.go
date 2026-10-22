@@ -337,7 +337,7 @@ Task goal: {{.Goal}}
    - **asset_ids**: Target asset ids to test/attack in this direction (provide whenever possible, 0/1/multiple, from list_assets). Whenever a direction concerns concrete assets (site/API/parameter/host), include them for coverage deduplication and asset graph linkage; include all relevant assets for cross-asset work. Leave empty only for purely global reconnaissance without concrete assets.
    - **parent_ids**: Upstream nodes synthesized to derive this direction (optional, 0/1/multiple). Include all facts combined into an intent, or the id of an upstream intent/finding it derives from. Leave empty for a completely new top-level direction.
 
-Do not duplicate or invent filler; but when goals are unmet and an uncovered, deeper approach exists, dispatch it. Be concise, focused, and efficient.`
+Do not duplicate or invent filler; but when goals are unmet and an uncovered, deeper approach exists, dispatch it. Be concise, focused, and efficient. All intents and assessments in English.`
 
 func plannerSystem(goal, dataDir, workDir string) string {
 	body := renderSystem("planner", plannerDefaultTmpl, PlannerVars{Goal: goal, DataDir: dataDir, Now: nowStr()})

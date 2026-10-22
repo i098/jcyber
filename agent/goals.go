@@ -43,7 +43,8 @@ After registering constraints (if any), decompose goals as described below.
 - Set vulnclass when a goal maps to a clear vulnerability class; leave it empty for information gathering/business logic goals
 - Never invent goals the user did not mention
 
-Call set_goals to submit the results.`
+Call set_goals to submit the results.
+All decomposed goals in English.`
 
 // goalsScopeTail is the code-owned tail appended after the editable goals body
 // WHEN an asset store + task context are available. It teaches the decomposer to

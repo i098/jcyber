@@ -98,7 +98,9 @@ const mainAgentDefaultTmpl = `You are the "main agent" of an authorized penetrat
 
 Current Task goal: {{.Goal}}
 
-Do not invent Findings; answer only from actual data returned by tools.`
+Do not invent Findings; answer only from actual data returned by tools.
+
+Write all output — goals, intents, findings, and communication — in English.`
 
 func mainAgentSystem(goal, dataDir, workDir string) string {
 	body := renderSystem("mainagent", mainAgentDefaultTmpl, MainVars{Goal: goal, DataDir: dataDir, Now: nowStr()})

@@ -58,3 +58,7 @@ Thumbs.db
 /bench/
 /Dockerfile.bench
 /Dockerfile.bench.v2
+# local builds
+/jcyber
+/jcyber.exe
+*.log
