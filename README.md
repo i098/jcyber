@@ -70,25 +70,14 @@ DeepSeek works well (`https://api.deepseek.com`, `deepseek-flash`), or export
 
 ## Features
 
-- **Planner and workers:** an event-driven planner hands one-sentence intents
-  to workers; each worker takes one, exercises the target, writes back facts,
-  assets, and findings.
-- **Dual knowledge graph:** the target's topology and the task's goals live in
-  Postgres, so multi-step chains keep their order across rounds.
-- **Evidence-first findings:** every request and response is recorded by the
-  proxy and bound to the finding it proves, in order. A finding without
-  evidence is a hunch.
-- **Reports and retests:** a report agent writes the Markdown writeup per
-  finding; a retest agent re-reads the original evidence and saves its own
-  verdict.
-- **Stealth discipline:** workers present as an ordinary browser: realistic
-  UAs, cookie reuse, randomized human pacing, minimum request counts.
-- **Any OpenAI-compatible model:** provider pool with health and failover,
-  per-role bindings, reasoning effort per role.
-- **Approvals:** deny or ask rules hold state-changing commands for a human,
-  with model-judged fallback approval.
-- **Skills and MCP:** drop-in `SKILL.md` playbooks (api-recon, playwright)
-  and remote MCP servers, editable from the console.
+- **Planner and workers:** an event-driven planner hands one-sentence intents to workers; each worker takes one, exercises the target, writes back facts, assets, and findings.
+- **Dual knowledge graph:** the target's topology and the task's goals live in Postgres, so multi-step chains keep their order across rounds.
+- **Evidence-first findings:** every request and response is recorded by the proxy and bound to the finding it proves, in order.
+- **Reports and retests:** a report agent writes the Markdown writeup per finding; a retest agent re-reads the original evidence and saves its own verdict.
+- **Stealth discipline:** workers present as an ordinary browser: realistic UAs, cookie reuse, randomized human pacing, minimum request counts.
+- **Any OpenAI-compatible model:** provider pool with health and failover, per-role bindings, reasoning effort per role.
+- **Approvals:** deny or ask rules hold state-changing commands for a human, with model-judged fallback approval.
+- **Skills and MCP:** drop-in `SKILL.md` playbooks (api-recon, playwright) and remote MCP servers, editable from the console.
 - **Asset sync:** pull assets from ScopeSentry by project or task.
 - **One-click update:** SHA256-verified self-update with rollback.
 
