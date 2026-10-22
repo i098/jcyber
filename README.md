@@ -50,13 +50,30 @@
 
 The console binds to localhost; pass `-addr :8787` only if you mean to expose it.
 
-For agent-assisted setup, give your coding agent this instruction:
+For agent-assisted setup on a remote box, give your coding agent this
+instruction — it covers everything we ran in practice: bootstrap the VPS, join
+the tailnet, configure the engine over an SSH tunnel, and optionally raise the
+phone front desk:
 
 ```text
-Clone https://github.com/i098/jcyber and run ./install.sh.
-Check docker, go and bun (or npm) first and tell me what is missing before
-installing anything. When the console is up, confirm http://127.0.0.1:8787
-answers and tell me the first-visit steps from README.md.
+Deploy jcyber on a remote Ubuntu VPS. Steps:
+1. SSH to the box. Install docker (curl -fsSL https://get.docker.com | sh, needs sudo),
+   Go (go.dev/dl tarball into /usr/local), and bun (bun.sh/install).
+2. Clone https://github.com/i098/jcyber.git (private: use a GitHub token in the URL).
+3. Run ./install.sh — it bundles Postgres (docker container or apt fallback),
+   builds the one binary, and starts the console on 127.0.0.1:8787.
+4. Install tailscale, run `tailscale up`, and give me the login URL to authorize.
+   Once on the tailnet, restart the console bound to the tailscale IP only
+   (-addr 100.x.y.z:8787) so the dashboard is never on the public internet.
+5. Open an SSH tunnel (-L 18787:127.0.0.1:8787) and configure the console via
+   its REST API: POST /api/auth/init to set the admin password, then POST
+   /api/llm/profiles for the model profiles (mark one is_default), PUT
+   /api/agents/{key}/config with llm_profile_id to bind roles, PUT /api/settings
+   for the outbound proxy, POST /api/task-categories + /api/task-templates for a
+   starter template. Verify with POST /api/llm/test.
+6. Optionally raise the phone front desk: follow PHOTON.md (Photon CLI login,
+   shared-line user, run bridge/ with bun against the console URL).
+Report each step's result before moving on. Never expose ports on the public IP.
 ```
 
 ## Your first run
