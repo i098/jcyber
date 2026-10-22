@@ -115,12 +115,16 @@ func extractToken(r *http.Request) string {
 	return r.URL.Query().Get("token")
 }
 
+// noAuthMode returns true when JCYBER_NO_AUTH=1: the server is tailnet-only,
+// so the network boundary is the auth boundary and JWT checks are skipped.
+func noAuthMode() bool { return os.Getenv("JCYBER_NO_AUTH") == "1" }
+
 // requireAuth wraps h with JWT validation.
 // /api/auth/* and /api/health are exempt.
 func (s *Server) requireAuth(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		if strings.HasPrefix(p, "/api/auth/") || p == "/api/health" {
+		if noAuthMode() || strings.HasPrefix(p, "/api/auth/") || p == "/api/health" {
 			h.ServeHTTP(w, r)
 			return
 		}
@@ -142,6 +146,10 @@ func (s *Server) requireAuth(h http.Handler) http.Handler {
 // 送到 /setup 去设置密码（login/page.tsx），把数据库故障包装成 200 等于把用户往
 // 覆盖已有密码的路上推。
 func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
+	if noAuthMode() {
+		writeJSON(w, 200, map[string]any{"initialized": true})
+		return
+	}
 	pg := s.pg(w)
 	if pg == nil {
 		return
@@ -270,6 +278,15 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decode(r, &req); err != nil {
 		writeErr(w, 400, "Invalid request format")
+		return
+	}
+	if noAuthMode() {
+		tok, err := signJWT(s.jwtKey)
+		if err != nil {
+			writeErr(w, 500, "Token generation failed")
+			return
+		}
+		writeJSON(w, 200, map[string]any{"token": tok})
 		return
 	}
 	if req.Username != "jcyber" {

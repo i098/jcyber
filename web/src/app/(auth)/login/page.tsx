@@ -50,13 +50,35 @@ export default function LoginPage() {
       window.location.replace("/function/tasks");
       return;
     }
+    let cancelled = false;
     api
       .authStatus()
-      .then(({ initialized }) => {
-        if (!initialized) router.replace("/setup");
+      .then(async ({ initialized }) => {
+        if (cancelled) return;
+        if (!initialized) {
+          router.replace("/setup");
+          return;
+        }
+        // JCYBER_NO_AUTH=1: server issues a token for any password. Try it
+        // silently; if auth is on the catch falls through to the login form.
+        try {
+          const { token } = await api.login("jcyber", "tailnet-auto");
+          if (cancelled) return;
+          auth.setToken(token);
+          window.location.replace("/function/tasks");
+        } catch {
+          if (!cancelled) setChecking(false);
+        }
       })
-      .catch(() => setError("Unable to connect to the backend service"))
-      .finally(() => setChecking(false));
+      .catch(() => {
+        if (!cancelled) {
+          setError("Unable to connect to the backend service");
+          setChecking(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
