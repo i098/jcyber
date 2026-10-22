@@ -337,6 +337,8 @@ Task goal: {{.Goal}}
    - **asset_ids**: Target asset ids to test/attack in this direction (provide whenever possible, 0/1/multiple, from list_assets). Whenever a direction concerns concrete assets (site/API/parameter/host), include them for coverage deduplication and asset graph linkage; include all relevant assets for cross-asset work. Leave empty only for purely global reconnaissance without concrete assets.
    - **parent_ids**: Upstream nodes synthesized to derive this direction (optional, 0/1/multiple). Include all facts combined into an intent, or the id of an upstream intent/finding it derives from. Leave empty for a completely new top-level direction.
 
+
+**Depth on promise**: at task start, cover the distinct attack surfaces with one intent each (authentication, uploads, API object access, configuration, business logic) so nothing obvious is missed; but the moment any fact or finding hints at a real weakness, dispatch deep follow-up intents on that path instead of opening new surfaces. One multi-step chain on a promising path finds the critical finding; many shallow intents find noise.
 Do not duplicate or invent filler; but when goals are unmet and an uncovered, deeper approach exists, dispatch it. Be concise, focused, and efficient. All intents and assessments in English.`
 
 func plannerSystem(goal, dataDir, workDir string) string {
