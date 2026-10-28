@@ -523,7 +523,10 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 	// 已隐藏的 add_task_scope/list_untested_assets。
 	if t.as != nil && t.ts != nil && t.taskID > 0 {
 		{
-			m := map[string]any{}
+			// scope：本任务(及直接来源任务)已声明的范围边界，每轮随概览下发，
+			// 规划者不必另调工具就能知道"哪些资产属于本任务"、避免重复 add_task_scope。
+			// coverage 关闭时 scope 仍在(coverageDisabled 注释)，所以放在开关之外。
+			m := map[string]any{"scope": t.taskScopeView()}
 			if !t.coverageDisabled {
 				if cov, err := t.as.TaskCoverageWithSources(t.taskID); err == nil {
 					m["denominator"] = cov.Denominator
@@ -549,6 +552,69 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 		}
 	}
 	return out
+}
+
+// taskScopeView renders the task's declared scope (this task first, then its
+// direct source tasks, each tagging its task_id) so the planner sees the range
+// boundary every round. kind=company rows also carry that company's rules and
+// keywords, so the planner needn't look them up separately. Values are the raw
+// text the caller registered (normalized forms live in domain/net/value).
+func (t *ToolSet) taskScopeView() []map[string]any {
+	rows, err := t.as.ListTaskScopeWithSources(t.taskID)
+	if err != nil {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(rows))
+	for _, s := range rows {
+		row := map[string]any{"id": s.ID, "task_id": s.TaskID, "kind": s.Kind, "source": s.Source}
+		if s.CompanyID != nil {
+			row["company_id"] = *s.CompanyID
+		}
+		if s.CompanyName != "" {
+			row["company_name"] = s.CompanyName
+		}
+		if s.Domain != "" {
+			row["domain"] = s.Domain
+		}
+		if s.Net != "" {
+			row["net"] = s.Net
+		}
+		if s.Value != "" {
+			row["value"] = s.Value
+		}
+		if s.Reason != "" {
+			row["reason"] = s.Reason
+		}
+		if t.cs != nil && s.Kind == "company" && s.CompanyID != nil {
+			if rules, err := t.cs.GetScope(*s.CompanyID); err == nil {
+				expanded := make([]map[string]any, 0, len(rules))
+				keywords := make([]string, 0)
+				for _, r := range rules {
+					value := r.Raw
+					if value == "" {
+						value = firstNonEmpty(r.Domain, r.Net, r.Value)
+					}
+					expanded = append(expanded, map[string]any{"kind": r.Kind, "value": value})
+					if r.Kind == "keyword" {
+						keywords = append(keywords, value)
+					}
+				}
+				row["company_scope"] = expanded
+				row["company_keywords"] = keywords
+			}
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func inheritedMap(m map[string]any, sourceTaskID int64) map[string]any {
