@@ -675,7 +675,7 @@ function CustomToolDialog({
     };
     try {
       if (isNew) await api.createCustomTool({ key: key.trim(), ...payload });
-      else await api.updateCustomTool(tool?.key, payload);
+      else if (tool) await api.updateCustomTool(tool.key, payload);
       toast.success(isNew ? "Custom tool created" : "Saved");
       onSaved();
     } catch (e) {

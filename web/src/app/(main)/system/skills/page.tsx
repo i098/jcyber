@@ -64,7 +64,7 @@ function buildTree(entries: string[]): TreeNode[] {
   const dirMap = new Map<string, TreeNode>();
 
   function ensureDir(dirPath: string, _parentNodes: TreeNode[]): TreeNode[] {
-    if (dirMap.has(dirPath)) return dirMap.get(dirPath)?.children;
+    if (dirMap.has(dirPath)) return dirMap.get(dirPath)!.children;
     const parts = dirPath.split("/");
     let nodes = root;
     let cur = "";
@@ -75,7 +75,7 @@ function buildTree(entries: string[]): TreeNode[] {
         nodes.push(d);
         dirMap.set(cur, d);
       }
-      nodes = dirMap.get(cur)?.children;
+      nodes = dirMap.get(cur)!.children;
     }
     return nodes;
   }
@@ -96,7 +96,7 @@ function buildTree(entries: string[]): TreeNode[] {
           nodes.push(d);
           dirMap.set(cur, d);
         }
-        nodes = dirMap.get(cur)?.children;
+        nodes = dirMap.get(cur)!.children;
       }
       const fname = parts[parts.length - 1];
       if (fname) nodes.push({ name: fname, path: entry, type: "file", children: [] });

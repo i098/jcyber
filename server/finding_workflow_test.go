@@ -44,9 +44,9 @@ func TestFindingWorkflowAutoHintToPlannerAndSetting(t *testing.T) {
 	if _, err := pg.Exec(`DELETE FROM settings WHERE key=$1`, settingAgentTrafficBinding); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { pg.SetBool(settingAgentTrafficBinding, false) })
-	if s.settingsPayload()[settingAgentTrafficBinding] != false {
-		t.Fatal("missing setting must default off")
+	t.Cleanup(func() { pg.SetBool(settingAgentTrafficBinding, true) })
+	if s.settingsPayload()[settingAgentTrafficBinding] != true {
+		t.Fatal("missing setting must default on")
 	}
 	seedServerEvidenceFlow(t, s, "handoff-proof", []byte("verified local proof"))
 	seedServerEvidenceFlow(t, s, "handoff-baseline", []byte("local baseline"))
@@ -57,7 +57,7 @@ func TestFindingWorkflowAutoHintToPlannerAndSetting(t *testing.T) {
 	}
 	bind := s.toolBindFindingTraffic()
 	input := map[string]any{"finding_id": initial.FindingID, "traffic_refs": []db.TrafficRef{{TrafficID: "handoff-baseline"}}}
-	workflowCall(t, ctx, bind, input, true)
+	workflowCall(t, ctx, bind, input, false)
 	if r := request("PUT", "/api/settings", `{"agent_traffic_binding":true}`); r.Code != 200 {
 		t.Fatal(r.Code, r.Body)
 	}
@@ -269,7 +269,7 @@ func TestFindingWorkflowReporterBindsBeforeWritingReport(t *testing.T) {
 	if err := pg.SetBool(settingAgentTrafficBinding, true); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { pg.SetBool(settingAgentTrafficBinding, false); s.m.SetTrafficEnabled(false) })
+	t.Cleanup(func() { pg.SetBool(settingAgentTrafficBinding, true); s.m.SetTrafficEnabled(true) })
 	if err := s.m.SetTrafficEnabled(true); err != nil {
 		t.Fatal(err)
 	}

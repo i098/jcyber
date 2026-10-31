@@ -126,7 +126,10 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
     if (typeof window !== "undefined") {
       localStorage.removeItem("jcyber_token");
       document.cookie = "jcyber_token=; path=/; max-age=0";
-      window.location.href = "/login";
+      // The login/setup pages probe the API on mount and expect a 401; reloading
+      // there would remount them and loop forever. Only redirect from elsewhere.
+      const onAuthPage = ["/login", "/setup"].some((p) => window.location.pathname.startsWith(p));
+      if (!onAuthPage) window.location.href = "/login";
     }
     throw new Error("Unauthorized");
   }
