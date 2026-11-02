@@ -318,8 +318,7 @@ How you text:
 - A tapback is a full reply. For "thanks", "lol", "ok", "nice", react and send nothing.
 - If they send a burst, answer the whole burst once.
 - Unsure? Ask one short question. Don't guess, and don't ask three things at once.
-- Vary acknowledgments: "checking", "one sec", "yeah", "hold up". Don't say "on it" every time.
-- If they ask "you there?" while work is running, say yeah, still on it — add "anything else?" if it fits. Never just "yeah".
+- If they ask "you there?" while work is running, say yeah, still on it. Never just "yeah".
 
 What you have:
 - dispatch(prompt): a subagent goes to jcyber for live state or actions — tasks, findings, scans, hints, pauses. Make the prompt self-contained: the real question plus any names or ids from the chat. One dispatch per turn. When multiple targets are requested, the subagent creates one task per target and you report each separately. Send a short ack in the same turn, then stop — or react with eyes instead of a text ack, your call. Vary it. The result comes back to you later and you'll tell them.
@@ -400,7 +399,7 @@ function typing(space: Space): () => void {
   return () => { live = false; clearInterval(timer); void space.stopTyping().catch(() => {}); };
 }
 
-async function voice(asked: string, result: string, failed = false): Promise<string> {
+async function voice(asked: string, result: string): Promise<string> {
   const r = await front.chat.completions.create(
     {
       model: MODEL_FRONT,
@@ -416,7 +415,7 @@ async function voice(asked: string, result: string, failed = false): Promise<str
   if (out) return out;
   console.error("[voice] empty, using raw result");
   const raw = result.replace(/\s+/g, " ").trim().slice(0, 500);
-  return raw || (failed ? "that failed on my end" : "done");
+  return raw;
 }
 
 async function handle(batch: Inbound[]): Promise<void> {
@@ -441,8 +440,6 @@ async function handle(batch: Inbound[]): Promise<void> {
   ];
 
   let reply = "";
-  let quiet = false;
-  let reacted = false;
   let dispatchPrompt: string | null = null;
   const stopTyping = typing(space);
   try {
@@ -472,7 +469,6 @@ async function handle(batch: Inbound[]): Promise<void> {
           const sent = await space.send(reaction(emoji, last.message))
             .then(() => true)
             .catch((err: unknown) => { console.error("[react]", err); return false; });
-          if (sent) reacted = true;
           out = sent ? `reacted ${emoji}` : "reaction failed";
         } else if (tc.function.name === "zoom") {
           out = await memory.zoom(Number(args.id), Number(args.n) || 1);
@@ -492,7 +488,7 @@ async function handle(batch: Inbound[]): Promise<void> {
         messages.push({ role: "tool", tool_call_id: tc.id, content: out });
       }
       if (dispatchPrompt) { reply = content; break; }
-      if (onlyReact) { reply = content; quiet = !content; break; }
+      if (onlyReact) { reply = content; break; }
     }
   } finally {
     stopTyping();
@@ -503,9 +499,6 @@ async function handle(batch: Inbound[]): Promise<void> {
     if (ack) {
       memory.append("front", ack);
       await say(space, ack);
-    } else if (!reacted) {
-      memory.append("front", "one sec");
-      await say(space, "one sec");
     }
     const asked = text;
     const prompt = dispatchPrompt;
@@ -513,11 +506,9 @@ async function handle(batch: Inbound[]): Promise<void> {
     activeWork.add(workKey);
     void (async () => {
       let result: string;
-      let failed = false;
       try {
         result = await subagent(prompt);
       } catch (err: unknown) {
-        failed = true;
         result = `failed: ${err instanceof Error ? err.message : String(err)}`;
         console.error("[subagent]", result);
       }
@@ -525,10 +516,10 @@ async function handle(batch: Inbound[]): Promise<void> {
       const stop = typing(space);
       let voiced: string;
       try {
-        voiced = await voice(asked, result, failed);
+        voiced = await voice(asked, result);
       } catch (err: unknown) {
         console.error("[voice]", err);
-        voiced = result.replace(/\s+/g, " ").trim().slice(0, 500) || "that failed on my end";
+        voiced = result.replace(/\s+/g, " ").trim().slice(0, 500);
       } finally {
         stop();
       }
@@ -542,8 +533,6 @@ async function handle(batch: Inbound[]): Promise<void> {
     const text = cleanText(reply);
     memory.append("front", text);
     await say(space, text);
-  } else if (!quiet) {
-    await say(space, "hm?");
   }
 }
 
@@ -571,7 +560,8 @@ function flush(): void {
   worker = worker.then(() => handle(batch)).catch(async (err: unknown) => {
     console.error("[front]", err);
     const last = batch[batch.length - 1]!;
-    await say(last.space, "ugh, my brain glitched — say that again?");
+    const reason = err instanceof Error ? err.message : String(err);
+    await say(last.space, cleanText(`error: ${reason}`).slice(0, 300));
   });
 }
 
