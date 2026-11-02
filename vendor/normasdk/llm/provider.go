@@ -96,6 +96,11 @@ type Config struct {
 	// to "reasoning_effort"; for Anthropic to "output_config":{"effort":...}.
 	// Typical values: low / medium / high / max.
 	ReasoningEffort string
+	// AccessPrograms maps onto the Responses API's `access_programs` object, e.g.
+	// {"cyber":"daybreak_blue"}. ChatGPT's Codex backend routes a request into the
+	// approved access program named here; every other endpoint ignores the field,
+	// so it is only sent when non-empty. FormatOpenAIResponses only.
+	AccessPrograms map[string]string
 	// MaxTokensField selects which request key carries the output cap on
 	// FormatOpenAI (Chat Completions). "" (default) sends the classic
 	// "max_tokens"; MaxTokensFieldCompletion sends "max_completion_tokens"

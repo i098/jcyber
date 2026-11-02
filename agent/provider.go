@@ -74,6 +74,10 @@ type Config struct {
 	// 空 = 不发送。值由 transcript.WithSessionID 挂在请求 context 上,由 RoundTripper
 	// 读取填入,因此同一共享 provider 也能按会话发出不同的头值。
 	SessionHeaderKey string
+	// AccessProgram 是 ChatGPT Codex 后端的 cyber 访问程序(如 daybreak_blue)。
+	// Codex 后端只把请求路由进已批准的 program;其它端点不使用该字段,故为空时不发送。
+	// 见 codexAccessProgram。保持为字符串(而非 map)以便 Config 仍可直接比较。
+	AccessProgram string
 	// Retry 是该配置解析后的重试参数(profile 覆盖 → 全局策略 → 内置默认,由
 	// server 侧解析)。三层的含义见 RetryConfig;零值 = 完全沿用内置默认。
 	Retry RetryConfig
@@ -178,6 +182,7 @@ func FromEnv() (Config, bool) {
 		if c.Model == "" {
 			c.Model = "gpt-5"
 		}
+		c.AccessProgram = codexAccessProgram(c.BaseURL)
 	default:
 		c.Format = llm.FormatAnthropic
 		c.APIKey = anthKey
@@ -218,6 +223,7 @@ func ConfigFrom(provider, model, baseURL, apiKey, proxy string) Config {
 		if c.Model == "" {
 			c.Model = "gpt-5"
 		}
+		c.AccessProgram = codexAccessProgram(c.BaseURL)
 	default:
 		c.Format = llm.FormatAnthropic
 		// provider appends "/v1/messages".
@@ -227,6 +233,26 @@ func ConfigFrom(provider, model, baseURL, apiKey, proxy string) Config {
 		}
 	}
 	return c
+}
+
+// codexAccessProgram returns the cyber access program for ChatGPT's Codex
+// backend (https://chatgpt.com/backend-api/codex). That endpoint routes a request
+// into an approved access program — the account's Daybreak grant, e.g.
+// daybreak_blue — and other endpoints ignore the field, so it stays empty there.
+// JCYBER_CODEX_ACCESS_PROGRAM overrides the program name; "off" disables it.
+func codexAccessProgram(baseURL string) string {
+	u, err := url.Parse(baseURL)
+	if err != nil || !strings.HasSuffix(strings.ToLower(u.Hostname()), "chatgpt.com") {
+		return ""
+	}
+	prog := strings.TrimSpace(os.Getenv("JCYBER_CODEX_ACCESS_PROGRAM"))
+	switch {
+	case prog == "":
+		return "daybreak_blue"
+	case strings.EqualFold(prog, "off"):
+		return ""
+	}
+	return prog
 }
 
 // isFalsy reports whether an env-var string explicitly requests "off". Empty or
@@ -269,6 +295,9 @@ func (c Config) NewProvider() (llm.Provider, error) {
 	// 可只发 thinking.type、只发 effort、都发、或都不发。
 	lc.ThinkingType = c.ThinkingType
 	lc.ReasoningEffort = c.ReasoningEffort
+	if c.AccessProgram != "" {
+		lc.AccessPrograms = map[string]string{"cyber": c.AccessProgram}
+	}
 	// 输出上限的字段名选择(空 = 用 max_tokens)。上限的「值」不在这里:它每轮随
 	// agentcore.Options.MaxTokens 走,provider 只决定把它塞进哪个键。
 	lc.MaxTokensField = c.MaxTokensField

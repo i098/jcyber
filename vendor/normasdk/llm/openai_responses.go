@@ -35,6 +35,9 @@ type orReq struct {
 	Temperature     *float64      `json:"temperature,omitempty"`
 	Stream          bool          `json:"stream"`
 	Store           bool          `json:"store"`
+	// AccessPrograms is the ChatGPT Codex backend's approved-program selector
+	// (e.g. {"cyber":"daybreak_blue"}); omitted for plain OpenAI endpoints.
+	AccessPrograms map[string]string `json:"access_programs,omitempty"`
 }
 
 type orReasoning struct {
@@ -70,6 +73,7 @@ func (p *openaiResponsesProvider) buildBody(req CompletionRequest, stream bool) 
 		Temperature:     req.Temperature,
 		Stream:          stream,
 		Store:           false, // stateless: full history sent each call
+		AccessPrograms:  p.cfg.AccessPrograms,
 	}
 	// reasoning.effort is the Responses equivalent of reasoning_effort. A
 	// per-request "disabled" (compaction's summary call) suppresses it; otherwise
