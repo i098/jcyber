@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { UniChat } from "./unichat";
 
 // Layered front desk:
-//   you <-> frontdesk (abliterated, no thinking — instant acks)
+//   you <-> frontdesk (deepseek-flash on deepseekv4pro, no thinking — instant acks)
 //   frontdesk -> dispatch(prompt) -> subagent (deepseek-flash, thinking on)
 //   subagent prompt -> jcyber (Auto agent conversation / direct reads)
 
@@ -14,11 +14,11 @@ const JCYBER_URL = process.env.JCYBER_URL ?? "http://127.0.0.1:8787";
 const JCYBER_USER = process.env.JCYBER_USER ?? "jcyber";
 const JCYBER_PASSWORD = process.env.JCYBER_PASSWORD ?? "pentest-local-2026";
 
-const MODEL_FRONT = "abliterated-model";
+const MODEL_FRONT = "deepseek-flash";
 const MODEL_DEEP = "deepseek-flash";
 const front = new OpenAI({
-  baseURL: "https://api.abliteration.ai/v1",
-  apiKey: process.env.ABLITERATION_API_KEY ?? "",
+  baseURL: "https://api.deepseekv4pro.com/v1",
+  apiKey: process.env.DEEPSEEK_V4PRO_API_KEY ?? "",
   timeout: 90_000,
   maxRetries: 0,
 });
@@ -294,7 +294,7 @@ The front desk will text it to the user.` },
   return "(subagent hit turn limit)";
 }
 
-// ── frontdesk: abliterated, no thinking, UniiChat memory ──────
+// ── frontdesk: deepseek-flash (deepseekv4pro), no thinking, UniiChat memory ──
 const memory = new UniChat(
   MEMORY_DIR,
   front, // the cheap model summarizes the log

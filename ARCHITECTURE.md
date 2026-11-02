@@ -13,7 +13,7 @@ flowchart TB
 
     subgraph mac["Your Mac — joy bridge"]
         IMESSAGE[iMessage]
-        FRONT["Front desk<br/>(abliterated-model, thinking off)<br/>instant acks, unfiltered dispatch"]
+        FRONT["Front desk<br/>(deepseek-flash on deepseekv4pro, thinking off)<br/>instant acks, unfiltered dispatch"]
         SUB["Subagents<br/>(deepseek-flash, thinking on)<br/>tools: list_tasks, list_findings, jcyber_chat"]
         IMESSAGE <--> FRONT
         FRONT -- "dispatch(prompt), async" --> SUB
@@ -40,7 +40,7 @@ flowchart TB
         ENGINE --> DS
         ENGINE -. "quota failover" .-> GLM
         ENGINE -. "explicit binding" .-> ABL
-        FRONT --> ABL
+        FRONT --> DS
         SUB --> DS
     end
 
@@ -101,7 +101,7 @@ sequenceDiagram
 | max | deepseek-flash | workers, planner, goals — every reasoning turn |
 | high | deepseek-flash | Auto, mainagent, reporter, retester, pentest |
 | failover | glm-5.3 | automatic when DeepSeek quota dies |
-| opt-in | abliterated-model-large-v2 | bind per agent when wanted; also the front desk (smallest variant) |
+| opt-in | abliterated-model-large-v2 | bind per agent when wanted |
 
 ## Safety rails
 
