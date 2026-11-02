@@ -23,6 +23,9 @@ func TestCodexAccessProgramsWire(t *testing.T) {
 	if got := c.AccessProgram; got != "daybreak_blue" {
 		t.Fatalf("default program = %q, want daybreak_blue", got)
 	}
+	if c.ServiceTier != "priority" {
+		t.Fatalf("service_tier = %q, want priority on the codex endpoint", c.ServiceTier)
+	}
 	if c.BaseURL != codexBase {
 		t.Fatalf("base_url = %q, want %q", c.BaseURL, codexBase)
 	}
@@ -31,6 +34,11 @@ func TestCodexAccessProgramsWire(t *testing.T) {
 	if got := ConfigFrom("openai-responses", "m", codexBase, "k", "").AccessProgram; got != "daybreak_red" {
 		t.Fatalf("override program = %q, want daybreak_red", got)
 	}
+	t.Setenv("JCYBER_CODEX_SERVICE_TIER", "off")
+	if st := ConfigFrom("openai-responses", "m", codexBase, "k", "").ServiceTier; st != "" {
+		t.Fatalf("tier off switch sent %q, want empty", st)
+	}
+	t.Setenv("JCYBER_CODEX_SERVICE_TIER", "")
 	t.Setenv("JCYBER_CODEX_ACCESS_PROGRAM", "off")
 	if p := ConfigFrom("openai-responses", "m", codexBase, "k", "").AccessProgram; p != "" {
 		t.Fatalf("off switch sent %q, want empty", p)
@@ -39,6 +47,9 @@ func TestCodexAccessProgramsWire(t *testing.T) {
 
 	if p := ConfigFrom("openai-responses", "gpt-5", "https://gw.example/v1", "k", "").AccessProgram; p != "" {
 		t.Fatalf("non-codex endpoint sent %q, want empty", p)
+	}
+	if st := ConfigFrom("openai-responses", "gpt-5", "https://gw.example/v1", "k", "").ServiceTier; st != "" {
+		t.Fatalf("non-codex endpoint sent tier %q, want empty", st)
 	}
 
 	// Wire check: the same body the Codex backend sees.
@@ -67,6 +78,9 @@ func TestCodexAccessProgramsWire(t *testing.T) {
 	}
 	if raw, ok := got["access_programs"].(map[string]any); !ok || raw["cyber"] != "daybreak_blue" {
 		t.Fatalf("request body access_programs = %v, want {\"cyber\":\"daybreak_blue\"} (body keys: %v)", got["access_programs"], keysOf(got))
+	}
+	if got["service_tier"] != "priority" {
+		t.Fatalf("request body service_tier = %v, want priority", got["service_tier"])
 	}
 	if got["store"] != false {
 		t.Fatalf("store = %v, want false", got["store"])

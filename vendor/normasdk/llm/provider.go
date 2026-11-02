@@ -96,6 +96,13 @@ type Config struct {
 	// to "reasoning_effort"; for Anthropic to "output_config":{"effort":...}.
 	// Typical values: low / medium / high / max.
 	ReasoningEffort string
+	// ServiceTier selects a speed tier on the Responses API, e.g. "priority"
+	// (ChatGPT Codex: 1.5-2x speed, more usage) or "ultrafast". Measured on the
+	// live Codex backend: priority lifts throughput ~3x and drops time-to-first-
+	// token ~4x. NOTE the response object's own service_tier field reads "default"
+	// either way, so it can't be used to confirm the tier took effect. Omitted
+	// when empty. FormatOpenAIResponses only.
+	ServiceTier string
 	// AccessPrograms maps onto the Responses API's `access_programs` object, e.g.
 	// {"cyber":"daybreak_blue"}. ChatGPT's Codex backend routes a request into the
 	// approved access program named here; every other endpoint ignores the field,

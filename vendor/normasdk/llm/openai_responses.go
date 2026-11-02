@@ -35,6 +35,8 @@ type orReq struct {
 	Temperature     *float64      `json:"temperature,omitempty"`
 	Stream          bool          `json:"stream"`
 	Store           bool          `json:"store"`
+	// ServiceTier is the speed tier ("priority"/"ultrafast"); omitted when unset.
+	ServiceTier string `json:"service_tier,omitempty"`
 	// AccessPrograms is the ChatGPT Codex backend's approved-program selector
 	// (e.g. {"cyber":"daybreak_blue"}); omitted for plain OpenAI endpoints.
 	AccessPrograms map[string]string `json:"access_programs,omitempty"`
@@ -73,6 +75,7 @@ func (p *openaiResponsesProvider) buildBody(req CompletionRequest, stream bool) 
 		Temperature:     req.Temperature,
 		Stream:          stream,
 		Store:           false, // stateless: full history sent each call
+		ServiceTier:     p.cfg.ServiceTier,
 		AccessPrograms:  p.cfg.AccessPrograms,
 	}
 	// reasoning.effort is the Responses equivalent of reasoning_effort. A

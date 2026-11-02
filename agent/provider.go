@@ -20,12 +20,12 @@ import (
 	"strings"
 	"time"
 
-	"pta/llmrec"
 	"normasdk/agentcore"
 	"normasdk/compaction"
 	"normasdk/llm"
 	acperm "normasdk/permission"
 	"normasdk/transcript"
+	"pta/llmrec"
 )
 
 // Config describes the LLM backend resolved from the environment.
@@ -74,6 +74,11 @@ type Config struct {
 	// 空 = 不发送。值由 transcript.WithSessionID 挂在请求 context 上,由 RoundTripper
 	// 读取填入,因此同一共享 provider 也能按会话发出不同的头值。
 	SessionHeaderKey string
+	// ServiceTier 是该端点要的加速档位(Codex 后端 "priority" = 1.5-2 倍速、消耗更多
+	// 额度;"ultrafast" = 最快)。实测 Codex 后端 priority 把吞吐抬约 3 倍、首字约快 4
+	// 倍;注意响应体里的 service_tier 字段始终回 "default",不能用来判断是否生效。
+	// 空 = 不发送。见 codexServiceTier。
+	ServiceTier string
 	// AccessProgram 是 ChatGPT Codex 后端的 cyber 访问程序(如 daybreak_blue)。
 	// Codex 后端只把请求路由进已批准的 program;其它端点不使用该字段,故为空时不发送。
 	// 见 codexAccessProgram。保持为字符串(而非 map)以便 Config 仍可直接比较。
@@ -183,6 +188,7 @@ func FromEnv() (Config, bool) {
 			c.Model = "gpt-5"
 		}
 		c.AccessProgram = codexAccessProgram(c.BaseURL)
+		c.ServiceTier = codexServiceTier(c.BaseURL)
 	default:
 		c.Format = llm.FormatAnthropic
 		c.APIKey = anthKey
@@ -224,6 +230,7 @@ func ConfigFrom(provider, model, baseURL, apiKey, proxy string) Config {
 			c.Model = "gpt-5"
 		}
 		c.AccessProgram = codexAccessProgram(c.BaseURL)
+		c.ServiceTier = codexServiceTier(c.BaseURL)
 	default:
 		c.Format = llm.FormatAnthropic
 		// provider appends "/v1/messages".
@@ -233,6 +240,25 @@ func ConfigFrom(provider, model, baseURL, apiKey, proxy string) Config {
 		}
 	}
 	return c
+}
+
+// codexServiceTier returns the speed tier for ChatGPT's Codex backend, which is
+// where fast mode lives (the app's "1.5x speed / more usage" toggle). Only that
+// endpoint gets one — plain OpenAI endpoints bill tiers differently, so they keep
+// the zero value. JCYBER_CODEX_SERVICE_TIER overrides; "off"/"auto" disables.
+func codexServiceTier(baseURL string) string {
+	u, err := url.Parse(baseURL)
+	if err != nil || !strings.HasSuffix(strings.ToLower(u.Hostname()), "chatgpt.com") {
+		return ""
+	}
+	switch tier := strings.TrimSpace(os.Getenv("JCYBER_CODEX_SERVICE_TIER")); {
+	case tier == "":
+		return "priority"
+	case strings.EqualFold(tier, "off"), strings.EqualFold(tier, "auto"):
+		return ""
+	default:
+		return tier
+	}
 }
 
 // codexAccessProgram returns the cyber access program for ChatGPT's Codex
@@ -298,6 +324,7 @@ func (c Config) NewProvider() (llm.Provider, error) {
 	if c.AccessProgram != "" {
 		lc.AccessPrograms = map[string]string{"cyber": c.AccessProgram}
 	}
+	lc.ServiceTier = c.ServiceTier
 	// 输出上限的字段名选择(空 = 用 max_tokens)。上限的「值」不在这里:它每轮随
 	// agentcore.Options.MaxTokens 走,provider 只决定把它塞进哪个键。
 	lc.MaxTokensField = c.MaxTokensField
