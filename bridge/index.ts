@@ -22,7 +22,10 @@ const front = new OpenAI({
   timeout: 90_000,
   maxRetries: 0,
 });
-const deep = new OpenAI({ baseURL: "https://api.deepseek.com", apiKey: process.env.DEEPSEEK_API_KEY ?? "" });
+const deep = new OpenAI({
+  baseURL: "https://api.deepseekv4pro.com/v1",
+  apiKey: process.env.DEEPSEEK_V4PRO_API_KEY ?? "",
+});
 
 const record = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? v as Record<string, unknown> : {});
 const str = (v: unknown, fallback = ""): string => (typeof v === "string" ? v : fallback);
