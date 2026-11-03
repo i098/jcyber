@@ -100,6 +100,19 @@ func TestResolvedEffortWire(t *testing.T) {
 	}
 }
 
+func TestMaxEffortUsesGlobalProvider(t *testing.T) {
+	direct := &scriptedLLMProvider{}
+	s := &Server{llmOn: true, llmProv: direct}
+	provider, _, ok := s.globalProviderForEffort(ThinkingEffortMax)
+	if !ok {
+		t.Fatal("max effort did not resolve the global provider")
+	}
+	_, _, _, err := provider.Complete(context.Background(), llm.CompletionRequest{})
+	if err != nil || direct.calls != 1 {
+		t.Fatalf("global provider calls = %d, error = %v; want one call without error", direct.calls, err)
+	}
+}
+
 func TestTaskEffortRoutingAcrossBindings(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
@@ -159,6 +172,10 @@ func TestTaskEffortRoutingAcrossBindings(t *testing.T) {
 	selection, err = (&taskLLMRuntime{s: s, taskID: maxTask.ID, agentKey: "worker"}).current()
 	if err != nil {
 		t.Fatal(err)
+	}
+	defaultProvider, _, ok := s.providerForProfile(chainID)
+	if !ok || selection.provider != defaultProvider {
+		t.Fatal("max task did not reuse the selected profile provider")
 	}
 	assertEffortWire(t, effortWireRequest(t, selection.provider, requests), "chain-model", "high")
 }

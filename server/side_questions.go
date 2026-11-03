@@ -51,7 +51,7 @@ func bindSideProvider(p llm.Provider, cfg agent.Config, id int64, name string) l
 }
 
 func sideModelEffort(cfg agent.Config, model sidequestion.Model) (string, bool) {
-	for _, effort := range []string{"", ThinkingEffortAuto, ThinkingEffortMax} {
+	for _, effort := range []string{"", ThinkingEffortAuto} {
 		if sideModel(resolvedEffortConfig(cfg, effort), model.ProfileID, model.Name).Identity == model.Identity {
 			return effort, true
 		}

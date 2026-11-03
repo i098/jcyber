@@ -76,6 +76,9 @@ func resolvedEffortConfig(cfg agent.Config, effort string) agent.Config {
 }
 
 func (s *Server) providerForProfileEffort(id int64, effort string) (llm.Provider, agent.Config, bool) {
+	if effort == ThinkingEffortMax {
+		effort = ""
+	}
 	key := effortProfileKey{id: id, effort: effort}
 	s.provCacheMu.Lock()
 	var cached *provEntry
@@ -152,6 +155,9 @@ func (s *Server) providerForProfileEffort(id int64, effort string) (llm.Provider
 }
 
 func (s *Server) environmentProviderForEffort(baseCfg agent.Config, effort string) (llm.Provider, agent.Config, bool) {
+	if effort == ThinkingEffortMax {
+		effort = ""
+	}
 	key := effortProfileKey{effort: effort}
 	s.provCacheMu.Lock()
 	var cached *provEntry
@@ -228,13 +234,12 @@ func (s *Server) resetEnvironmentEffortProviders() {
 	delete(s.provByProfile, 0)
 	delete(s.provShared, 0)
 	delete(s.provByEffort, effortProfileKey{effort: ThinkingEffortAuto})
-	delete(s.provByEffort, effortProfileKey{effort: ThinkingEffortMax})
 	s.globalByEffort = map[string]*provEntry{}
 	s.provCacheMu.Unlock()
 }
 
 func (s *Server) globalProviderForEffort(effort string) (llm.Provider, agent.Config, bool) {
-	if effort == "" {
+	if effort == "" || effort == ThinkingEffortMax {
 		return s.globalProvider()
 	}
 	s.cfgMu.Lock()
