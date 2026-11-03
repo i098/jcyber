@@ -715,15 +715,9 @@ func (s *Server) invalidateProfileCaches() {
 				delete(s.provByEffort, key)
 			}
 		}
-		for id := range s.provShared {
-			if id != 0 {
-				delete(s.provShared, id)
-			}
-		}
 	} else {
 		s.provByProfile = map[int64]*provEntry{}
 		s.provByEffort = map[effortProfileKey]*provEntry{}
-		s.provShared = map[int64]*profileEffortRouter{}
 	}
 	s.globalByEffort = map[string]*provEntry{}
 	s.provCacheMu.Unlock()

@@ -338,6 +338,37 @@ func TestUnchangedActiveProfileKeepsLimiterAfterOtherProfileSave(t *testing.T) {
 	}
 }
 
+func TestRetryPolicyInvalidationKeepsProfileLimiter(t *testing.T) {
+	for _, environmentApplied := range []bool{false, true} {
+		t.Run(fmt.Sprint(environmentApplied), func(t *testing.T) {
+			const profileID = 7
+			s := &Server{llmOn: environmentApplied, provShared: map[int64]*profileEffortRouter{}}
+			provider := func(effort string, underlying llm.Provider) llm.Provider {
+				shared := s.provShared[profileID]
+				if shared == nil {
+					shared = &profileEffortRouter{providers: map[string]llm.Provider{}}
+					shared.limited = llm.RateLimited(shared, llm.RateLimit{PerMinute: 1})
+					s.provShared[profileID] = shared
+				}
+				shared.providers[effort] = underlying
+				return &profileEffortView{shared: shared.limited, effort: effort}
+			}
+			old := &scriptedLLMProvider{}
+			if _, _, _, err := provider("", old).Complete(context.Background(), llm.CompletionRequest{}); err != nil || old.calls != 1 {
+				t.Fatalf("first request: calls = %d, error = %v", old.calls, err)
+			}
+			s.invalidateProfileCaches()
+			fresh := &scriptedLLMProvider{}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+			defer cancel()
+			_, _, _, err := provider(ThinkingEffortAuto, fresh).Complete(ctx, llm.CompletionRequest{})
+			if !errors.Is(err, context.DeadlineExceeded) || fresh.calls != 0 {
+				t.Fatalf("second request bypassed shared limiter: calls = %d, error = %v", fresh.calls, err)
+			}
+		})
+	}
+}
+
 func TestGlobalAutoEffortDoesNotAttributeOldConfigToNewActiveProfile(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
