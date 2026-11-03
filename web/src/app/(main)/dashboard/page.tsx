@@ -223,14 +223,13 @@ export default function DashboardPage() {
     let alive = true;
     const load = async () => {
       try {
-        const [traf, counts, agentList, mcpList, skillList, toolList, profileList] = await Promise.all([
+        const [traf, counts, agentList, mcpList, skillList, toolList] = await Promise.all([
           api.traffic(0, 50),
           api.assetCounts(),
           api.agents(),
           api.mcpServers(),
           api.skills(),
           api.tools(),
-          api.llmProfiles(),
         ]);
         if (!alive) return;
         setTraffic(traf.exchanges ?? []);
@@ -239,7 +238,6 @@ export default function DashboardPage() {
         setMcpServers(mcpList);
         setSkills(skillList);
         setTools(toolList);
-        setLLMProfiles(profileList);
       } catch {
         /* transient errors */
       }
@@ -254,13 +252,13 @@ export default function DashboardPage() {
 
   React.useEffect(() => {
     let alive = true;
-    const load = async () => {
-      try {
-        const usage = await api.usageStats(365);
+    const load = () => {
+      void api.usageStats(365).then((usage) => {
         if (alive) setUsageStats(usage);
-      } catch {
-        /* transient errors */
-      }
+      }).catch(() => {});
+      void api.llmProfiles().then((profiles) => {
+        if (alive) setLLMProfiles(profiles);
+      }).catch(() => {});
     };
     void load();
     const t = setInterval(load, 15000);

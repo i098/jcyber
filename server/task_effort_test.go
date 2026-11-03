@@ -228,11 +228,14 @@ func TestEnvironmentEffortKeepsLimiterAfterInactiveProfileSave(t *testing.T) {
 	if !ok {
 		t.Fatal("max effort did not resolve environment provider")
 	}
+	assertEffortWire(t, effortWireRequest(t, maxProvider, requests), cfg.Model, cfg.ReasoningEffort)
+	if err := s.rebuildCurrentLLM(); err != nil {
+		t.Fatal(err)
+	}
 	autoProvider, _, ok := s.globalProviderForEffort(ThinkingEffortAuto)
 	if !ok {
 		t.Fatal("auto effort did not resolve environment provider")
 	}
-	assertEffortWire(t, effortWireRequest(t, maxProvider, requests), cfg.Model, cfg.ReasoningEffort)
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	_, _, _, err = autoProvider.Complete(ctx, llm.CompletionRequest{})

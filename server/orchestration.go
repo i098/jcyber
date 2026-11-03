@@ -535,9 +535,6 @@ func (s *Server) refreshBuiltinToolSchemas() {
 	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
 		return
 	}
-	if v, _, _ := s.m.pg.GetSetting("tool_schema_refresh_v9_spawn_name"); v == "true" {
-		return
-	}
 	tools := append(s.orchestrationTools(), s.platformTools()...)
 	for _, t := range tools {
 		schema, _ := json.Marshal(t.InputSchema())

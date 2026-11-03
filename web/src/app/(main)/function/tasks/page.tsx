@@ -3176,6 +3176,10 @@ function CreateTaskSheet({
   }
 
   async function createTask() {
+    if (!name.trim()) {
+      toast.error("Enter a name that includes the target");
+      return;
+    }
     if (!goal.trim()) {
       toast.error("Enter a goal");
       return;
@@ -3269,12 +3273,13 @@ function CreateTaskSheet({
               portalContainer={sheetContentRef}
             />
             <div className="grid gap-2">
-              <Label htmlFor="name">Name (include target)</Label>
+              <Label htmlFor="name">Name (required; include target)</Label>
               <Input
                 id="name"
                 placeholder="Short title with target, for example: example.com scan"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                required
               />
             </div>
             <Field>
@@ -3456,10 +3461,10 @@ function CreateTaskSheet({
                       checked={seedFirstIntent}
                       onCheckedChange={(v) => setSeedFirstIntent(!!v)}
                     />
-                    Dispatch the first intent directly (description + goal)
+                    Dispatch the first intent directly (name + description + goal)
                   </label>
                   <p className="text-muted-foreground text-xs">
-                    When enabled, dispatch "description + goal" as an intent at creation so the worker starts without
+                    When enabled, dispatch "name + description + goal" as an intent at creation so the worker starts without
                     waiting for initial planning. The planner assesses and supplements the result afterward. Recommended
                     for scenarios such as CTFs often solved in one work item; disable for the standard plan-then-execute
                     flow.

@@ -477,13 +477,6 @@ func (s *Server) rebuildCurrentLLM() error {
 	}
 	cfg, ok := s.loadLLMConfig()
 	if !ok {
-		active, err := s.m.pg.ActiveProfile()
-		if err != nil {
-			return err
-		}
-		if active != nil {
-			return fmt.Errorf("active profile is unavailable")
-		}
 		s.cfgMu.Lock()
 		cfg, ok = s.llmCfg, s.llmOn && s.llmProfileID == 0
 		s.cfgMu.Unlock()
@@ -511,12 +504,16 @@ func (s *Server) applyLLMWithoutTaskAgentInvalidation(cfg agent.Config) error {
 		}
 	}
 	if prov == nil {
-		s.resetEnvironmentEffortProviders()
-		var ok bool
-		prov, _, ok = s.environmentProviderForEffort(cfg, s.llmProf, "", nil)
-		if !ok {
-			s.cfgMu.Unlock()
-			return fmt.Errorf("provider init failed for %s / %s", cfg.Provider(), cfg.Model)
+		if s.llmOn && s.llmProfileID == 0 && s.llmCfg == cfg && s.llmDirect != nil {
+			prov = s.llmDirect
+		} else {
+			s.resetEnvironmentEffortProviders()
+			var ok bool
+			prov, _, ok = s.environmentProviderForEffort(cfg, s.llmProf, "", nil)
+			if !ok {
+				s.cfgMu.Unlock()
+				return fmt.Errorf("provider init failed for %s / %s", cfg.Provider(), cfg.Model)
+			}
 		}
 	} else if s.llmProfileID == 0 {
 		s.resetEnvironmentEffortProviders()
@@ -525,8 +522,8 @@ func (s *Server) applyLLMWithoutTaskAgentInvalidation(cfg agent.Config) error {
 	// LLM 轮询(默认关):把激活配置包进故障转移链,当前配置不可用时自动切下一个。
 	// 只影响「走全局激活配置」的这条路径——agent 绑定 / 任务 pin 的走 providerForProfile,
 	// 默认仍然独占该配置(见 poolForBinding)。关闭或无备选时返回原 provider,行为不变。
-	if act, err := s.m.pg.ActiveProfile(); err == nil && act != nil {
-		prov = s.poolForActive(act.ID, prov, cfg)
+	if appliedProfileID != 0 {
+		prov = s.poolForActive(appliedProfileID, prov, cfg)
 	}
 	// No global planner/worker pair: every task runs on its own task-routed pair
 	// (agentsForTask), resolved through the engine's authoritative resolver. Global
@@ -1531,7 +1528,7 @@ func truncateReply(s string) string {
 }
 
 type createTaskReq struct {
-	Name                 string   `json:"name,omitempty"` // 可选任务名称;省略/空=未命名
+	Name                 string   `json:"name"`
 	CategoryID           *int64   `json:"category_id,omitempty"`
 	Description          string   `json:"description"`
 	Goal                 string   `json:"goal"`
@@ -1552,6 +1549,10 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	var req createTaskReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		writeErr(w, 400, "name is required")
 		return
 	}
 	if strings.TrimSpace(req.Description) == "" {
