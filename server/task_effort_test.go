@@ -244,7 +244,7 @@ func TestApplyLLMInvalidatesStaleGlobalAutoProvider(t *testing.T) {
 	oldGeneration := s.provCacheGen
 	s.provCacheMu.Unlock()
 	s.resetGlobalAutoProvider()
-	if _, _, ok := s.environmentProviderForEffort(oldConfig, ThinkingEffortAuto, &oldGeneration); ok {
+	if _, _, ok := s.environmentProviderForEffort(oldConfig, s.llmProf, ThinkingEffortAuto, &oldGeneration); ok {
 		t.Fatal("stale auto provider built after cache generation changed")
 	}
 	provider, cfg, ok := s.globalProviderForEffort(ThinkingEffortAuto)
@@ -252,6 +252,74 @@ func TestApplyLLMInvalidatesStaleGlobalAutoProvider(t *testing.T) {
 		t.Fatalf("post-reapply auto config = %+v, available = %v; want new applied model", cfg, ok)
 	}
 	assertEffortWire(t, effortWireRequest(t, provider, requests), "new-model", ThinkingEffortAuto)
+}
+
+func TestSideAutoEffortUsesCapturedProviderWhenPoolFailsOver(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v)", err)
+	}
+	defer m.Close()
+	activeServer, activeRequests := effortWireServer(t)
+	defer activeServer.Close()
+	fallbackServer, fallbackRequests := effortWireServer(t)
+	defer fallbackServer.Close()
+	previous, err := m.pg.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().UnixNano()
+	activeID, err := m.pg.SaveProfile(&db.LLMProfile{
+		Name: fmt.Sprintf("side-auto-active-%d", stamp), Format: "openai-responses",
+		BaseURL: activeServer.URL, Model: "active-model", APIKey: "test-key", ReasoningEffort: "high",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallbackID, err := m.pg.SaveProfile(&db.LLMProfile{
+		Name: fmt.Sprintf("side-auto-fallback-%d", stamp), Format: "openai-responses",
+		BaseURL: fallbackServer.URL, Model: "fallback-model", APIKey: "test-key", ReasoningEffort: "high",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if previous != nil {
+			_ = m.pg.SetActiveProfile(previous.ID)
+		} else {
+			_, _ = m.pg.Exec(`UPDATE llm_profiles SET is_default=false WHERE id=$1`, activeID)
+		}
+		_ = m.pg.DeleteProfile(activeID)
+		_ = m.pg.DeleteProfile(fallbackID)
+	}()
+	if err := m.pg.SetActiveProfile(activeID); err != nil {
+		t.Fatal(err)
+	}
+	poolEnabled := m.LLMPoolEnabled()
+	if err := m.SetLLMPoolEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.SetLLMPoolEnabled(poolEnabled) }()
+	s := &Server{m: m, llmHealth: newLLMHealthRegistry(m.pg)}
+	cfg, ok := s.loadLLMConfig()
+	if !ok {
+		t.Fatal("active profile unavailable")
+	}
+	if err := s.applyLLM(cfg); err != nil {
+		t.Fatal(err)
+	}
+	model := sideModel(resolvedEffortConfig(cfg, ThinkingEffortAuto), 0, "active")
+	s.llmHealth.Trip(activeID, "quota exhausted", true)
+	provider, err := s.sideProvider(model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEffortWire(t, effortWireRequest(t, provider, activeRequests), cfg.Model, ThinkingEffortAuto)
+	select {
+	case body := <-fallbackRequests:
+		t.Fatalf("side question used fallback profile: %v", body)
+	default:
+	}
 }
 
 func TestTaskEffortRoutingAcrossBindings(t *testing.T) {

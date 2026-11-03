@@ -430,6 +430,7 @@ func (s *Server) profileConfigMatches(id int64, cfg agent.Config) bool {
 // applyLLM (re)builds the planner/worker/main-agent from cfg and installs them on
 // the running engine as the GLOBAL active pair. Safe to call at runtime (UI configures LLM).
 func (s *Server) applyLLM(cfg agent.Config) error {
+	s.cfgMu.Lock()
 	var prov llm.Provider
 	// A persisted active profile must use the same cached provider as task chains
 	// and Agent bindings, otherwise each path owns a separate rate limiter.
@@ -439,14 +440,13 @@ func (s *Server) applyLLM(cfg agent.Config) error {
 	if prov == nil {
 		s.resetEnvironmentEffortProviders()
 		var ok bool
-		prov, _, ok = s.environmentProviderForEffort(cfg, "", nil)
+		prov, _, ok = s.environmentProviderForEffort(cfg, s.llmProf, "", nil)
 		if !ok {
+			s.cfgMu.Unlock()
 			return fmt.Errorf("provider init failed for %s / %s", cfg.Provider(), cfg.Model)
 		}
 	}
-	s.cfgMu.Lock()
 	s.llmDirect = prov
-	s.cfgMu.Unlock()
 	// LLM 轮询(默认关):把激活配置包进故障转移链,当前配置不可用时自动切下一个。
 	// 只影响「走全局激活配置」的这条路径——agent 绑定 / 任务 pin 的走 providerForProfile,
 	// 默认仍然独占该配置(见 poolForBinding)。关闭或无备选时返回原 provider,行为不变。
@@ -463,7 +463,6 @@ func (s *Server) applyLLM(cfg agent.Config) error {
 	// per-agent binding is resolved at Chat time (runConversationSync →
 	// chatAgentForProfile). The main-agent has no global instance: each task builds its
 	// own via agentsForTask (task-routed), so nothing is constructed for it here.
-	s.cfgMu.Lock()
 	// chat agent serves MANY custom agents by key → it holds the GLOBAL opts
 	// (backend/key) and gates Enabled per-conversation-agent at Chat time. 对话始终用激活配置。
 	s.chatAgent = agent.NewChatAgent(prov, cfg.Model, s.m.dir, tx, win) // chat page runner

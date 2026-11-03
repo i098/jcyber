@@ -26,6 +26,44 @@ func taskExecutionContext(t *Task) string {
 	return strings.TrimSpace(name + " " + description)
 }
 
+func taskSeedText(t *Task) string {
+	name := strings.TrimSpace(t.lifecycleSnapshot().Name)
+	if _, _, _, ok := parseTarget(name); ok {
+		return name
+	}
+	return taskExecutionContext(t) + " " + t.Goal
+}
+
+func taskSeededTarget(t *Task, as *db.AssetStore) string {
+	if as == nil || t.Store == nil {
+		return ""
+	}
+	origin, err := t.Store.OriginFactID()
+	if err != nil || origin == 0 {
+		return ""
+	}
+	anchors, err := t.Store.NodeAssets([]int64{origin})
+	if err != nil {
+		return ""
+	}
+	assets, err := as.GetByIDs(anchors[origin])
+	if err != nil {
+		return ""
+	}
+	for _, asset := range assets {
+		if asset.URL != "" {
+			return asset.URL
+		}
+		if asset.Domain != "" {
+			return asset.Domain
+		}
+		if asset.IP != "" {
+			return asset.IP
+		}
+	}
+	return ""
+}
+
 // launchTask runs the shared post-creation sequence for a task created via ANY
 // path (HTTP createTask 或 orchestration spawn_task),避免两处复制粘贴:
 //  1. seed 根资产,喂给事件驱动 loop;
@@ -38,7 +76,7 @@ func (s *Server) launchTask(t *Task, seedFirstIntent bool) {
 	if !s.engine.beginTaskOperation(t.ID) {
 		return
 	}
-	s.seed(t, taskExecutionContext(t)+" "+t.Goal)
+	s.seed(t, taskSeedText(t))
 	if seedFirstIntent {
 		s.seedFirstIntent(t)
 	}
@@ -393,7 +431,11 @@ func (s *Server) createGoals(ctx context.Context, t *Task, emit func(db.Activity
 	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
 	s.engine.BeginLLMCall(t.ID)
 	goalRuntime := s.agentsForTask(t).runtime
-	decomposed := agent.DecomposeGoalsWithProvider(ctx, goalRuntime, s.m.dir, t.Goal, taskExecutionContext(t), as, t.Store, taskID, goalRuntime.nonStreaming(), goalRuntime.maxTokens(), emit)
+	description := t.Description
+	if target := taskSeededTarget(t, as); target != "" {
+		description = "Seeded target: " + target + "\n" + description
+	}
+	decomposed := agent.DecomposeGoalsWithProvider(ctx, goalRuntime, s.m.dir, t.Goal, description, as, t.Store, taskID, goalRuntime.nonStreaming(), goalRuntime.maxTokens(), emit)
 	s.engine.EndLLMCall(t.ID)
 	for _, g := range decomposed {
 		if strings.TrimSpace(g.Text) != "" {

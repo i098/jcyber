@@ -196,14 +196,13 @@ const TOOLS: Record<string, ToolDef> = {
     run: async (a) => {
       const name = str(a.name).trim();
       if (!name) throw new Error("task name is required");
-      const description = str(a.description).trim() || name;
       const res = await fetch(`${JCYBER_URL}/api/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${await auth()}` },
         body: JSON.stringify({
           name,
           goal: str(a.goal),
-          description,
+          description: str(a.description),
           llm_profile_id: Number(a.llm_profile_id) > 0 ? Number(a.llm_profile_id) : undefined,
           thinking_effort: a.thinking_effort,
           seed_first_intent: true,

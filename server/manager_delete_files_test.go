@@ -46,6 +46,35 @@ func TestSeedAssociatesTargetAssetWithTask(t *testing.T) {
 	}
 }
 
+func TestSeededTargetSurvivesTaskRename(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v) - skipping", err)
+	}
+	defer m.Close()
+	task, err := m.CreateTask("Use https://docs.vendor.net as reference", "Find exposed admin routes", nil, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = m.DeleteTask(task.ID, DeleteTaskOptions{DeleteAssets: true}) }()
+	host := fmt.Sprintf("seed-%s.example.test", task.ID)
+	name := host + " scan"
+	if _, err := m.UpdateTaskMetadata(task.ID, pgdb.TaskPatch{Name: &name}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{m: m}
+	s.seed(task, taskSeedText(task))
+	name = "other.example.test"
+	if _, err := m.UpdateTaskMetadata(task.ID, pgdb.TaskPatch{Name: &name}); err != nil {
+		t.Fatal(err)
+	}
+	seeded := taskSeededTarget(task, m.Assets())
+	_, gotHost, _, ok := parseTarget(seeded)
+	if !ok || gotHost != host {
+		t.Fatalf("seeded target after rename = %q, want host %q", seeded, host)
+	}
+}
+
 func TestDeleteTaskFilesRemovesOnlyOwnedWorkspaceAndTranscripts(t *testing.T) {
 	dataDir := t.TempDir()
 

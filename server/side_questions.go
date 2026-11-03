@@ -210,7 +210,7 @@ func (s *Server) sideProvider(model sidequestion.Model) (llm.Provider, error) {
 		p, cfg, ok = s.llmDirect, s.llmCfg, s.llmOn
 		s.cfgMu.Unlock()
 		if effort, matched := sideModelEffort(cfg, model); matched && effort != "" {
-			p, cfg, ok = s.globalProviderForEffort(effort)
+			p, cfg, ok = s.globalDirectAutoProvider()
 		}
 	}
 	if !ok || p == nil || sideModel(cfg, model.ProfileID, model.Name).Identity != model.Identity {

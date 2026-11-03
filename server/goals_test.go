@@ -12,12 +12,12 @@ func TestCreateGoalsNilTask(t *testing.T) {
 }
 
 func TestTaskExecutionContextPreservesNamedTarget(t *testing.T) {
-	task := &Task{Name: "example.com scan", Description: "Focus on login endpoints", Goal: "Find exposed admin routes"}
+	task := &Task{Name: "example.com scan", Description: "Use https://docs.vendor.net as reference", Goal: "Find exposed admin routes"}
 	context := taskExecutionContext(task)
-	if context != "example.com scan Focus on login endpoints" {
+	if context != "example.com scan Use https://docs.vendor.net as reference" {
 		t.Fatalf("task context = %q", context)
 	}
-	_, host, _, ok := parseTarget(context + " " + task.Goal)
+	_, host, _, ok := parseTarget(taskSeedText(task))
 	if !ok || host != "example.com" {
 		t.Fatalf("seed target = %q, found = %v", host, ok)
 	}
