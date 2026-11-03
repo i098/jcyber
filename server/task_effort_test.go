@@ -15,6 +15,7 @@ import (
 	"normasdk/llm"
 	"pta/agent"
 	"pta/db"
+	"pta/llmpool"
 )
 
 func effortWireServer(t *testing.T) (*httptest.Server, <-chan map[string]any) {
@@ -112,6 +113,34 @@ func TestMaxEffortUsesGlobalProvider(t *testing.T) {
 	_, _, _, err := provider.Complete(context.Background(), llm.CompletionRequest{})
 	if err != nil || direct.calls != 1 {
 		t.Fatalf("global provider calls = %d, error = %v; want one call without error", direct.calls, err)
+	}
+}
+
+func TestAutoProfileEffortUsesAppliedCache(t *testing.T) {
+	srv, requests := effortWireServer(t)
+	defer srv.Close()
+	cfg := agent.ConfigFrom("openai-responses", "applied-model", srv.URL, "test-key", "")
+	cfg.ThinkingType, cfg.ReasoningEffort, cfg.RatePerMinute = "enabled", "high", 1
+	s := &Server{m: &Manager{}}
+	maxProvider, _, ok := s.providerForEffortUnlocked(42, "", &cfg, "applied")
+	if !ok {
+		t.Fatal("applied profile provider unavailable")
+	}
+	assertEffortWire(t, effortWireRequest(t, maxProvider, requests), cfg.Model, cfg.ReasoningEffort)
+	autoProvider, autoCfg, ok := s.providerForProfileEffort(42, ThinkingEffortAuto)
+	if !ok || autoCfg.Model != cfg.Model || autoCfg.ThinkingType != "" || autoCfg.ReasoningEffort != "" {
+		t.Fatalf("auto profile config = %+v, available = %v; want applied model with provider-default effort", autoCfg, ok)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	_, _, _, err := autoProvider.Complete(ctx, llm.CompletionRequest{})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("auto effort bypassed applied profile limiter: %v", err)
+	}
+	select {
+	case request := <-requests:
+		t.Fatalf("auto effort sent a second request before rate limit: %v", request)
+	default:
 	}
 }
 
@@ -352,7 +381,7 @@ func TestInvalidActiveProfileSaveKeepsRunningLimiter(t *testing.T) {
 	}
 	profile := &db.LLMProfile{
 		Name: fmt.Sprintf("invalid-save-%d", time.Now().UnixNano()), Format: "openai-responses",
-		BaseURL: srv.URL, Model: "profile-model", APIKey: "test-key", RatePerMinute: 1,
+		BaseURL: srv.URL, Model: "profile-model", APIKey: "test-key", RatePerMinute: 1, Priority: 10,
 		ThinkingType: "enabled", ReasoningEffort: "high", Streaming: true,
 	}
 	id, err := m.pg.SaveProfile(profile)
@@ -409,7 +438,7 @@ func TestInvalidActiveProfileSaveKeepsRunningLimiter(t *testing.T) {
 	profile.Name = "renamed-" + profile.Name
 	update, err := json.Marshal(map[string]any{
 		"id": id, "name": profile.Name, "format": profile.Format, "base_url": profile.BaseURL,
-		"model": profile.Model, "proxy": "", "rate_per_minute": 1, "streaming": true,
+		"model": profile.Model, "proxy": "", "rate_per_minute": 1, "streaming": true, "priority": profile.Priority,
 		"thinking_type": profile.ThinkingType, "reasoning_effort": profile.ReasoningEffort,
 	})
 	if err != nil {
@@ -424,7 +453,7 @@ func TestInvalidActiveProfileSaveKeepsRunningLimiter(t *testing.T) {
 	draftName := "draft-" + profile.Name
 	update, err = json.Marshal(map[string]any{
 		"id": id, "name": draftName, "format": profile.Format, "base_url": profile.BaseURL,
-		"model": "draft-model", "proxy": "://invalid", "rate_per_minute": 1, "streaming": true,
+		"model": "draft-model", "proxy": "://invalid", "rate_per_minute": 1, "streaming": true, "priority": 0,
 		"thinking_type": profile.ThinkingType, "reasoning_effort": profile.ReasoningEffort,
 	})
 	if err != nil {
@@ -460,12 +489,28 @@ func TestInvalidActiveProfileSaveKeepsRunningLimiter(t *testing.T) {
 		t.Fatalf("settings rebuild reported draft: %+v, error = %v", global, err)
 	}
 	s.resetGlobalAutoProvider()
+	queuedAuto, queuedCfg, ok := s.providerForProfileEffort(id, ThinkingEffortAuto)
+	if !ok || queuedCfg.Model != profile.Model {
+		t.Fatalf("queued auto resolved draft: config = %+v, available = %v", queuedCfg, ok)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	_, _, _, err = queuedAuto.Complete(ctx, llm.CompletionRequest{})
+	cancel()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("queued auto bypassed running limiter: %v", err)
+	}
+	select {
+	case request := <-requests:
+		t.Fatalf("queued auto sent a second request before rate limit: %v", request)
+	default:
+	}
 	checkAutoBlocked("invalid draft")
 	previousPolicy := m.pg.LLMRetryPolicy()
 	defer func() { _ = m.pg.SetLLMRetryPolicy(previousPolicy) }()
+	fallbackName := fmt.Sprintf("retry-fallback-%d", time.Now().UnixNano())
 	fallbackID, err := m.pg.SaveProfile(&db.LLMProfile{
-		Name: fmt.Sprintf("retry-fallback-%d", time.Now().UnixNano()), Format: "openai-responses",
-		BaseURL: srv.URL, Model: "fallback-model", APIKey: "test-key", Streaming: true,
+		Name: fallbackName, Format: "openai-responses",
+		BaseURL: srv.URL, Model: "fallback-model", APIKey: "test-key", Streaming: true, Priority: 5,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -491,6 +536,61 @@ func TestInvalidActiveProfileSaveKeepsRunningLimiter(t *testing.T) {
 		t.Fatalf("fallback profile retry config = %+v, available = %v", fallbackCfg.Retry, ok)
 	}
 	checkAutoBlocked("retry policy")
+	update, err = json.Marshal(map[string]any{
+		"id": fallbackID, "name": "draft-" + fallbackName, "format": "openai-responses", "base_url": srv.URL,
+		"model": "draft-fallback", "proxy": "://invalid", "streaming": true, "priority": 0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder = httptest.NewRecorder()
+	s.pgSaveProfile(recorder, httptest.NewRequest(http.MethodPost, "/api/llm/profiles", bytes.NewReader(update)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("invalid fallback save: %d %s", recorder.Code, recorder.Body.String())
+	}
+	otherID, err := m.pg.SaveProfile(&db.LLMProfile{
+		Name: fmt.Sprintf("other-fallback-%d", time.Now().UnixNano()), Format: "openai-responses",
+		BaseURL: srv.URL, Model: "other-model", APIKey: "test-key", Streaming: true, Priority: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.pg.DeleteProfile(otherID) }()
+	t.Setenv("JCYBER_LLM_ROUND_ROBIN", "1")
+	if err := m.SetLLMPoolEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.rebuildCurrentLLM(); err != nil {
+		t.Fatal(err)
+	}
+	s.resetGlobalAutoProvider()
+	for _, effort := range []string{ThinkingEffortMax, ThinkingEffortAuto} {
+		prov, _, ok := s.globalProviderForEffort(effort)
+		pool, poolOK := prov.(*llmpool.Pool)
+		if !ok || !poolOK {
+			t.Fatalf("%s effort has no failover pool: available = %v, provider = %T", effort, ok, prov)
+		}
+		head := pool.Head()
+		if head.Name != profile.Name || head.Model != profile.Model || head.Format != profile.Format || head.Priority != profile.Priority || head.Rank != profile.Priority {
+			t.Fatalf("%s effort used draft pool metadata: %+v", effort, head)
+		}
+		var fallback *llmpool.Member
+		fallbackIndex, otherIndex := -1, -1
+		for i, member := range pool.Members() {
+			if member.ID == fallbackID {
+				fallback = member
+				fallbackIndex = i
+			} else if member.ID == otherID {
+				otherIndex = i
+			}
+		}
+		if fallback == nil || fallback.Name != fallbackName || fallback.Model != "fallback-model" || fallback.Format != "openai-responses" || fallback.Priority != 5 || fallback.Rank != 5 {
+			t.Fatalf("%s effort used draft fallback metadata: %+v", effort, fallback)
+		}
+		if otherIndex < 0 || fallbackIndex >= otherIndex {
+			t.Fatalf("%s effort ordered draft priority ahead of applied priority: fallback index %d, other index %d", effort, fallbackIndex, otherIndex)
+		}
+	}
 }
 
 func TestKeylessActivationSettingsRebuildsAppliedChat(t *testing.T) {

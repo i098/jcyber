@@ -121,9 +121,10 @@ type Server struct {
 
 // provEntry is a cached provider + its config for one LLM profile id.
 type provEntry struct {
-	prov llm.Provider
-	cfg  agent.Config
-	name string
+	prov     llm.Provider
+	cfg      agent.Config
+	name     string
+	priority int
 }
 
 // triggeredRun is one queued P3 trigger fire awaiting its turn for an agent.

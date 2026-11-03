@@ -3,6 +3,7 @@ package server
 import (
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -59,16 +60,42 @@ func newLLMHealthRegistry(pg *db.DB) *llmpool.Registry {
 // poolMember builds one chain member from a profile, reusing the per-profile
 // provider cache so every agent pointing at the same profile shares one provider
 // (hence one rate limiter). Returns nil when the profile can't be built.
-func (s *Server) poolMember(p *db.LLMProfile, rank int, effort string) *llmpool.Member {
+func (s *Server) poolMember(p *db.LLMProfile, effort string) *llmpool.Member {
 	prov, cfg, ok := s.providerForProfileEffortUnlocked(p.ID, effort)
 	if !ok {
 		return nil
 	}
+	name, model, format, priority := s.poolMetadata(p, cfg, effort)
+	rank := priority
+	if p.IsDefault {
+		rank = llmpool.RankActive - 1
+	}
 	return &llmpool.Member{
-		ID: p.ID, Name: p.Name, Model: p.Model, Format: p.Format,
-		Priority: p.Priority, Active: p.IsDefault, Rank: rank,
+		ID: p.ID, Name: name, Model: model, Format: format,
+		Priority: priority, Active: p.IsDefault, Rank: rank,
 		WindowTokens: cfg.CompactionWindow(), Prov: prov,
 	}
+}
+
+func (s *Server) poolMetadata(p *db.LLMProfile, cfg agent.Config, effort string) (string, string, string, int) {
+	name, model, format, priority := p.Name, p.Model, p.Format, p.Priority
+	cacheEffort := effort
+	if cacheEffort == ThinkingEffortMax {
+		cacheEffort = ""
+	}
+	s.provCacheMu.Lock()
+	cached := s.provByEffort[effortProfileKey{id: p.ID, effort: cacheEffort}]
+	if cacheEffort == "" || cached == nil {
+		cached = s.provByProfile[p.ID]
+	}
+	if cached != nil && resolvedEffortConfig(cached.cfg, effort) == cfg {
+		if cached.name != "" {
+			name = cached.name
+		}
+		model, format, priority = cfg.Model, cfg.Provider(), cached.priority
+	}
+	s.provCacheMu.Unlock()
+	return name, model, format, priority
 }
 
 // headRank returns the rank the chain head gets. Default RankActive, so the
@@ -115,13 +142,14 @@ func (s *Server) poolChain(headID int64, headProv llm.Provider, headCfg agent.Co
 			return nil
 		}
 	}
+	headName, headModel, headFormat, headPriority := s.poolMetadata(head, headCfg, effort)
 	// Round-robin mode: the head keeps its configured priority instead of the
 	// synthetic top rank, so profiles sharing a priority genuinely rotate per call
 	// (llmpool rotates within each equal-rank group) instead of only failing over
 	// on error. Unset keeps the old active-heads-the-chain failover behavior.
 	members := []*llmpool.Member{{
-		ID: head.ID, Name: head.Name, Model: head.Model, Format: head.Format,
-		Priority: head.Priority, Active: head.IsDefault, Rank: headRank(head.Priority),
+		ID: head.ID, Name: headName, Model: headModel, Format: headFormat,
+		Priority: headPriority, Active: head.IsDefault, Rank: headRank(headPriority),
 		WindowTokens: headCfg.CompactionWindow(), Prov: headProv,
 	}}
 	for _, p := range profs {
@@ -130,17 +158,15 @@ func (s *Server) poolChain(headID int64, headProv llm.Provider, headCfg agent.Co
 		}
 		// The globally active profile outranks the others when it isn't the head
 		// (bound-fallback chains), so it stays the first fallback tried.
-		rank := p.Priority
-		if p.IsDefault {
-			rank = llmpool.RankActive - 1
-		}
-		if m := s.poolMember(p, rank, effort); m != nil {
+		if m := s.poolMember(p, effort); m != nil {
 			members = append(members, m)
 		}
 	}
 	if len(members) < 2 {
 		return nil // nothing to fail over to
 	}
+	fallbacks := members[1:]
+	sort.SliceStable(fallbacks, func(i, j int) bool { return fallbacks[i].Rank > fallbacks[j].Rank })
 	return llmpool.New(members, s.llmHealth)
 }
 

@@ -105,6 +105,7 @@ func (s *Server) providerForEffortUnlocked(id int64, effort string, source *agen
 	}
 	key := effortProfileKey{id: id, effort: effort}
 	var desired agent.Config
+	priority := 0
 	if source != nil {
 		desired = resolvedEffortConfig(*source, effort)
 	}
@@ -119,6 +120,15 @@ func (s *Server) providerForEffortUnlocked(id int64, effort string, source *agen
 		s.provCacheMu.Unlock()
 		return cached.prov, cached.cfg, true
 	}
+	if base := s.provByProfile[id]; base != nil {
+		priority = base.priority
+		if source == nil && effort == ThinkingEffortAuto {
+			applied := base.cfg
+			source = &applied
+			name = base.name
+			desired = resolvedEffortConfig(applied, effort)
+		}
+	}
 	s.provCacheMu.Unlock()
 	var baseCfg agent.Config
 	if source == nil {
@@ -132,6 +142,7 @@ func (s *Server) providerForEffortUnlocked(id int64, effort string, source *agen
 			return nil, agent.Config{}, false
 		}
 		name = profile.Name
+		priority = profile.Priority
 	} else {
 		baseCfg = *source
 	}
@@ -173,7 +184,7 @@ func (s *Server) providerForEffortUnlocked(id int64, effort string, source *agen
 		shared.providers[effort] = prov
 		shared.mu.Unlock()
 		prov = &profileEffortView{shared: shared.limited, effort: effort}
-		entry := &provEntry{prov: prov, cfg: cfg, name: name}
+		entry := &provEntry{prov: prov, cfg: cfg, name: name, priority: priority}
 		if effort == "" {
 			if s.provByProfile == nil {
 				s.provByProfile = map[int64]*provEntry{}
@@ -245,13 +256,13 @@ func (s *Server) refreshRetryPolicyProviders() bool {
 			if effort == "" {
 				if old := s.provByProfile[id]; old != nil {
 					shared.providers[effort] = built.prov
-					s.provByProfile[id] = &provEntry{prov: old.prov, cfg: built.cfg, name: profile.Name}
+					s.provByProfile[id] = &provEntry{prov: old.prov, cfg: built.cfg, name: profile.Name, priority: profile.Priority}
 				}
 			} else {
 				key := effortProfileKey{id: id, effort: effort}
 				if old := s.provByEffort[key]; old != nil {
 					shared.providers[effort] = built.prov
-					s.provByEffort[key] = &provEntry{prov: old.prov, cfg: built.cfg, name: profile.Name}
+					s.provByEffort[key] = &provEntry{prov: old.prov, cfg: built.cfg, name: profile.Name, priority: profile.Priority}
 				}
 			}
 		}
