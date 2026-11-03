@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -176,6 +177,71 @@ func TestGlobalAutoEffortUsesAppliedConfig(t *testing.T) {
 	select {
 	case request := <-requests:
 		t.Fatalf("auto provider sent a second request before rate limit: %v", request)
+	default:
+	}
+}
+
+func TestEnvironmentEffortKeepsLimiterAfterInactiveProfileSave(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v)", err)
+	}
+	defer m.Close()
+	previous, err := m.pg.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if previous != nil {
+		if _, err := m.pg.Exec(`UPDATE llm_profiles SET is_default=false WHERE id=$1`, previous.ID); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = m.pg.SetActiveProfile(previous.ID) }()
+	}
+	srv, requests := effortWireServer(t)
+	defer srv.Close()
+	cfg := agent.ConfigFrom("openai-responses", "environment-model", srv.URL, "test-key", "")
+	cfg.ThinkingType, cfg.ReasoningEffort, cfg.RatePerMinute = "enabled", "high", 1
+	s := &Server{m: m, llmHealth: newLLMHealthRegistry(m.pg)}
+	if err := s.applyLLM(cfg); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(map[string]any{
+		"name": fmt.Sprintf("inactive-%d", time.Now().UnixNano()), "format": "openai-responses",
+		"model": "inactive-model", "base_url": srv.URL, "api_key": "test-key",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	s.pgSaveProfile(recorder, httptest.NewRequest(http.MethodPost, "/api/llm/profiles", bytes.NewReader(body)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("save inactive profile: %d %s", recorder.Code, recorder.Body.String())
+	}
+	var saved struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &saved); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.pg.DeleteProfile(saved.ID) }()
+	maxProvider, _, ok := s.globalProviderForEffort(ThinkingEffortMax)
+	if !ok {
+		t.Fatal("max effort did not resolve environment provider")
+	}
+	autoProvider, _, ok := s.globalProviderForEffort(ThinkingEffortAuto)
+	if !ok {
+		t.Fatal("auto effort did not resolve environment provider")
+	}
+	assertEffortWire(t, effortWireRequest(t, maxProvider, requests), cfg.Model, cfg.ReasoningEffort)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	_, _, _, err = autoProvider.Complete(ctx, llm.CompletionRequest{})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("auto effort did not share environment limiter: %v", err)
+	}
+	select {
+	case request := <-requests:
+		t.Fatalf("auto effort sent a second request before rate limit: %v", request)
 	default:
 	}
 }

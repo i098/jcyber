@@ -3176,8 +3176,8 @@ function CreateTaskSheet({
   }
 
   async function createTask() {
-    if (!description.trim() || !goal.trim()) {
-      toast.error("Enter a description and goal");
+    if (!goal.trim()) {
+      toast.error("Enter a goal");
       return;
     }
     if (sourceTaskIDs.length > MAX_SOURCE_TASKS) {
@@ -3247,7 +3247,7 @@ function CreateTaskSheet({
       >
         <SheetHeader className="border-b p-6">
           <SheetTitle>New Task</SheetTitle>
-          <SheetDescription>Enter the test target and goal. Expand advanced settings as needed.</SheetDescription>
+          <SheetDescription>Include the test target in the Name, then enter a goal. Description adds optional context.</SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto p-6">
@@ -3269,10 +3269,10 @@ function CreateTaskSheet({
               portalContainer={sheetContentRef}
             />
             <div className="grid gap-2">
-              <Label htmlFor="name">Name (optional)</Label>
+              <Label htmlFor="name">Name (include target)</Label>
               <Input
                 id="name"
-                placeholder="Give the Task a recognizable name, for example: Acme Website Pentest"
+                placeholder="Short title with target, for example: example.com scan"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
@@ -3291,11 +3291,11 @@ function CreateTaskSheet({
               </FieldDescription>
             </Field>
             <div className="grid gap-2">
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description">Description (optional)</Label>
               <Textarea
                 id="description"
                 className="min-h-32"
-                placeholder="Test target and background, for example: Test the Site example.com"
+                placeholder="Additional context, for example: Focus on login and admin routes"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />

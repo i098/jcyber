@@ -460,6 +460,44 @@ func (s *Server) applyLLM(cfg agent.Config) error {
 	return nil
 }
 
+func (s *Server) rebuildCurrentLLM() error {
+	s.profileReapplyMu.Lock()
+	applied := false
+	defer func() {
+		s.profileReapplyMu.Unlock()
+		if applied {
+			s.invalidateTaskAgents()
+		}
+	}()
+	s.cfgMu.Lock()
+	on := s.llmOn
+	s.cfgMu.Unlock()
+	if !on {
+		return nil
+	}
+	cfg, ok := s.loadLLMConfig()
+	if !ok {
+		active, err := s.m.pg.ActiveProfile()
+		if err != nil {
+			return err
+		}
+		if active != nil {
+			return fmt.Errorf("active profile is unavailable")
+		}
+		s.cfgMu.Lock()
+		cfg, ok = s.llmCfg, s.llmOn && s.llmProfileID == 0
+		s.cfgMu.Unlock()
+	}
+	if !ok {
+		return nil
+	}
+	if err := s.applyLLMWithoutTaskAgentInvalidation(cfg); err != nil {
+		return err
+	}
+	applied = true
+	return nil
+}
+
 func (s *Server) applyLLMWithoutTaskAgentInvalidation(cfg agent.Config) error {
 	s.cfgMu.Lock()
 	var prov llm.Provider
@@ -480,6 +518,8 @@ func (s *Server) applyLLMWithoutTaskAgentInvalidation(cfg agent.Config) error {
 			s.cfgMu.Unlock()
 			return fmt.Errorf("provider init failed for %s / %s", cfg.Provider(), cfg.Model)
 		}
+	} else if s.llmProfileID == 0 {
+		s.resetEnvironmentEffortProviders()
 	}
 	s.llmDirect = prov
 	// LLM 轮询(默认关):把激活配置包进故障转移链,当前配置不可用时自动切下一个。
@@ -643,11 +683,32 @@ func (s *Server) invalidateProfileAgents() {
 
 func (s *Server) invalidateProfileCaches() {
 	s.invalidateProfileChatAgents()
+	s.cfgMu.Lock()
+	preserveEnvironment := s.llmOn && s.llmProfileID == 0
+	s.cfgMu.Unlock()
 	s.provCacheMu.Lock()
 	s.provCacheGen++
-	s.provByProfile = map[int64]*provEntry{}
-	s.provByEffort = map[effortProfileKey]*provEntry{}
-	s.provShared = map[int64]*profileEffortRouter{}
+	if preserveEnvironment {
+		for id := range s.provByProfile {
+			if id != 0 {
+				delete(s.provByProfile, id)
+			}
+		}
+		for key := range s.provByEffort {
+			if key.id != 0 {
+				delete(s.provByEffort, key)
+			}
+		}
+		for id := range s.provShared {
+			if id != 0 {
+				delete(s.provShared, id)
+			}
+		}
+	} else {
+		s.provByProfile = map[int64]*provEntry{}
+		s.provByEffort = map[effortProfileKey]*provEntry{}
+		s.provShared = map[int64]*profileEffortRouter{}
+	}
 	s.globalByEffort = map[string]*provEntry{}
 	s.provCacheMu.Unlock()
 }
@@ -3579,14 +3640,9 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if changed {
 		// rebuild agents so the new proxy/tools/prompt/web-search take hold (only if LLM configured).
-		s.cfgMu.Lock()
-		cfg, on := s.llmCfg, s.llmOn
-		s.cfgMu.Unlock()
-		if on {
-			if err := s.applyLLM(cfg); err != nil {
-				writeErr(w, 500, err.Error())
-				return
-			}
+		if err := s.rebuildCurrentLLM(); err != nil {
+			writeErr(w, 500, err.Error())
+			return
 		}
 	}
 	writeJSON(w, 200, s.settingsPayload())

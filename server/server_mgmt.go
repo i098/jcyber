@@ -450,12 +450,7 @@ func (s *Server) pgSaveAgentConfig(w http.ResponseWriter, r *http.Request) {
 	// web search). Rebuild them even when no global profile is configured.
 	s.invalidateTaskAgents()
 	// rebuild the live agents so the new max_turns/run_seconds/binding apply without a restart.
-	s.cfgMu.Lock()
-	cfg, on := s.llmCfg, s.llmOn
-	s.cfgMu.Unlock()
-	if on {
-		_ = s.applyLLM(cfg)
-	}
+	_ = s.rebuildCurrentLLM()
 	resp := map[string]any{"ok": true}
 	if req.MaxTurns != nil {
 		resp["max_turns"] = *req.MaxTurns
