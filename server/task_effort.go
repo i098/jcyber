@@ -76,6 +76,12 @@ func resolvedEffortConfig(cfg agent.Config, effort string) agent.Config {
 }
 
 func (s *Server) providerForProfileEffort(id int64, effort string) (llm.Provider, agent.Config, bool) {
+	s.profileReapplyMu.RLock()
+	defer s.profileReapplyMu.RUnlock()
+	return s.providerForProfileEffortUnlocked(id, effort)
+}
+
+func (s *Server) providerForProfileEffortUnlocked(id int64, effort string) (llm.Provider, agent.Config, bool) {
 	if effort == ThinkingEffortMax {
 		effort = ""
 	}
@@ -113,7 +119,7 @@ func (s *Server) providerForProfileEffort(id int64, effort string) (llm.Provider
 	s.provCacheMu.Lock()
 	if generation != s.provCacheGen {
 		s.provCacheMu.Unlock()
-		return s.providerForProfileEffort(id, effort)
+		return s.providerForProfileEffortUnlocked(id, effort)
 	}
 	if effort == "" {
 		cached = s.provByProfile[id]
@@ -248,10 +254,14 @@ func (s *Server) resetGlobalAutoProvider() {
 }
 
 func (s *Server) globalProviderForEffort(effort string) (llm.Provider, agent.Config, bool) {
+	s.profileReapplyMu.RLock()
+	defer s.profileReapplyMu.RUnlock()
 	return s.resolveGlobalProviderForEffort(effort, true)
 }
 
 func (s *Server) globalDirectAutoProvider() (llm.Provider, agent.Config, bool) {
+	s.profileReapplyMu.RLock()
+	defer s.profileReapplyMu.RUnlock()
 	return s.resolveGlobalProviderForEffort(ThinkingEffortAuto, false)
 }
 
@@ -281,7 +291,7 @@ func (s *Server) resolveGlobalProviderForEffort(effort string, withFailover bool
 	var poolHeadID int64
 	if s.m != nil && s.m.pg != nil && appliedProfileID != 0 {
 		if s.profileConfigMatches(appliedProfileID, baseCfg) {
-			prov, cfg, _ = s.providerForProfileEffort(appliedProfileID, effort)
+			prov, cfg, _ = s.providerForProfileEffortUnlocked(appliedProfileID, effort)
 			if prov != nil && cfg == resolvedEffortConfig(baseCfg, effort) {
 				if active, err := s.m.pg.ActiveProfile(); err == nil && active != nil && active.ID == appliedProfileID {
 					poolHeadID = appliedProfileID

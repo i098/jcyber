@@ -1818,19 +1818,28 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	if p.Format != "openai" || p.MaxTokensField != llm.MaxTokensFieldCompletion {
 		p.MaxTokensField = ""
 	}
+	s.profileReapplyMu.Lock()
+	rebuildTaskAgents := false
+	defer func() {
+		s.profileReapplyMu.Unlock()
+		if rebuildTaskAgents {
+			s.invalidateTaskAgents()
+		}
+	}()
 	id, err := pg.SaveProfile(&p)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	rebuildTaskAgents = true
 	// Editing a profile rebuilds any task pinned to it on its next round. Reapply
 	// the active profile too: the global fallback and explicit task chains must
 	// repopulate the same provider-cache entry and therefore share one limiter.
-	s.invalidateProfileAgents()
+	s.invalidateProfileCaches()
 	// Hot-apply. Not just when the ACTIVE profile changed: with failover on, any
 	// profile's key/model/priority/pool_exclude edit reshapes the chain, so the
 	// engine's provider has to be rebuilt either way.
-	s.reapplyActiveProfile()
+	s.reapplyActiveProfileWithoutTaskAgentInvalidation()
 	writeJSON(w, 200, map[string]any{"id": id})
 }
 
@@ -1857,13 +1866,22 @@ func (s *Server) pgSaveLLMRetryPolicy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	s.profileReapplyMu.Lock()
+	rebuildTaskAgents := false
+	defer func() {
+		s.profileReapplyMu.Unlock()
+		if rebuildTaskAgents {
+			s.invalidateTaskAgents()
+		}
+	}()
 	if err := pg.SetLLMRetryPolicy(pol); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	rebuildTaskAgents = true
 	s.applyRetryPolicy()
-	s.invalidateProfileAgents()
-	s.reapplyActiveProfile()
+	s.invalidateProfileCaches()
+	s.reapplyActiveProfileWithoutTaskAgentInvalidation()
 	writeJSON(w, 200, pg.LLMRetryPolicy())
 }
 

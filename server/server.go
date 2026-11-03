@@ -50,8 +50,9 @@ type Server struct {
 	// free slots off the same snapshot and over-promote past the limit.
 	concMu sync.Mutex
 
-	cfgMu     sync.Mutex
-	chatAgent *agent.ChatAgent // conversational runner for the chat page; nil w/o LLM
+	cfgMu            sync.Mutex
+	profileReapplyMu sync.RWMutex
+	chatAgent        *agent.ChatAgent // conversational runner for the chat page; nil w/o LLM
 	// llmProv is the fully-decorated global provider (recorder + failover chain)
 	// installed by applyLLM. Task routers use it after an explicit chain is cleared.
 	llmProv      llm.Provider
@@ -388,15 +389,28 @@ func (s *Server) saveLLMConfig(cfg agent.Config) error {
 // saving or activating a profile takes effect without a restart. Best-effort:
 // logs on failure and leaves the running engine untouched.
 func (s *Server) reapplyActiveProfile() {
+	s.profileReapplyMu.Lock()
+	applied := false
+	defer func() {
+		s.profileReapplyMu.Unlock()
+		if applied {
+			s.invalidateTaskAgents()
+		}
+	}()
+	applied = s.reapplyActiveProfileWithoutTaskAgentInvalidation()
+}
+
+func (s *Server) reapplyActiveProfileWithoutTaskAgentInvalidation() bool {
 	cfg, ok := s.loadLLMConfig()
 	if !ok {
-		return
+		return false
 	}
-	if err := s.applyLLM(cfg); err != nil {
+	if err := s.applyLLMWithoutTaskAgentInvalidation(cfg); err != nil {
 		log.Printf("[engine] reapply active profile failed: %v", err)
-		return
+		return false
 	}
 	log.Printf("[engine] LLM reapplied from active profile: %s / %s", cfg.Provider(), cfg.Model)
+	return true
 }
 
 // webSearchFor gates the global web-search opts (backend/key) by an agent's own
@@ -431,13 +445,29 @@ func (s *Server) profileConfigMatches(id int64, cfg agent.Config) bool {
 // applyLLM (re)builds the planner/worker/main-agent from cfg and installs them on
 // the running engine as the GLOBAL active pair. Safe to call at runtime (UI configures LLM).
 func (s *Server) applyLLM(cfg agent.Config) error {
+	s.profileReapplyMu.Lock()
+	applied := false
+	defer func() {
+		s.profileReapplyMu.Unlock()
+		if applied {
+			s.invalidateTaskAgents()
+		}
+	}()
+	if err := s.applyLLMWithoutTaskAgentInvalidation(cfg); err != nil {
+		return err
+	}
+	applied = true
+	return nil
+}
+
+func (s *Server) applyLLMWithoutTaskAgentInvalidation(cfg agent.Config) error {
 	s.cfgMu.Lock()
 	var prov llm.Provider
 	var appliedProfileID int64
 	// A persisted active profile must use the same cached provider as task chains
 	// and Agent bindings, otherwise each path owns a separate rate limiter.
 	if active, _ := s.m.pg.ActiveProfile(); active != nil && s.profileConfigMatches(active.ID, cfg) {
-		prov, _, _ = s.providerForProfile(active.ID)
+		prov, _, _ = s.providerForProfileEffortUnlocked(active.ID, "")
 		if prov != nil {
 			appliedProfileID = active.ID
 		}
@@ -486,7 +516,6 @@ func (s *Server) applyLLM(cfg agent.Config) error {
 		s.resetGlobalAutoProvider()
 	}
 	s.cfgMu.Unlock()
-	s.invalidateTaskAgents()
 
 	// wake the active task so a task created while idle starts exploring.
 	if t := s.m.ActiveTask(); t != nil {
@@ -604,6 +633,13 @@ func (s *Server) chatAgentForProfile(id int64) *agent.ChatAgent {
 // save/delete — or an agent's binding change — rebuilds pinned tasks' agents
 // (and re-resolves each agent's bound model) on their next round.
 func (s *Server) invalidateProfileAgents() {
+	s.profileReapplyMu.Lock()
+	s.invalidateProfileCaches()
+	s.profileReapplyMu.Unlock()
+	s.invalidateTaskAgents()
+}
+
+func (s *Server) invalidateProfileCaches() {
 	s.profMu.Lock()
 	s.profChatAgents = map[int64]*agent.ChatAgent{}
 	s.profMu.Unlock()
@@ -614,7 +650,6 @@ func (s *Server) invalidateProfileAgents() {
 	s.provShared = map[int64]*profileEffortRouter{}
 	s.globalByEffort = map[string]*provEntry{}
 	s.provCacheMu.Unlock()
-	s.invalidateTaskAgents()
 }
 
 func (s *Server) invalidateProfileAgentInstances() {
@@ -1328,17 +1363,26 @@ func (s *Server) setLLM(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "provider init failed: "+err.Error())
 		return
 	}
+	s.profileReapplyMu.Lock()
+	rebuildTaskAgents := false
+	defer func() {
+		s.profileReapplyMu.Unlock()
+		if rebuildTaskAgents {
+			s.invalidateTaskAgents()
+		}
+	}()
 	if err := s.saveLLMConfig(cfg); err != nil {
 		writeErr(w, 500, "persist provider failed: "+err.Error())
 		return
 	}
-	s.invalidateProfileAgents()
+	rebuildTaskAgents = true
+	s.invalidateProfileCaches()
 	savedCfg, ok := s.loadLLMConfig()
 	if !ok {
 		writeErr(w, 500, "saved provider is unavailable")
 		return
 	}
-	if err := s.applyLLM(savedCfg); err != nil {
+	if err := s.applyLLMWithoutTaskAgentInvalidation(savedCfg); err != nil {
 		writeErr(w, 400, "provider init failed: "+err.Error())
 		return
 	}
