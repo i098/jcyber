@@ -38,15 +38,18 @@ export function observeGraphTheme(onChange: () => void) {
   // The preference provider applies explicit and system themes to this element.
   const root = document.documentElement;
   let dark = root.classList.contains("dark");
+  let preset = root.dataset.themePreset;
   const observer = new MutationObserver(() => {
     const nextDark = root.classList.contains("dark");
-    if (nextDark === dark) return;
+    const nextPreset = root.dataset.themePreset;
+    if (nextDark === dark && nextPreset === preset) return;
     dark = nextDark;
+    preset = nextPreset;
     onChange();
   });
   observer.observe(root, {
     attributes: true,
-    attributeFilter: ["class"],
+    attributeFilter: ["class", "data-theme-preset"],
   });
   return () => observer.disconnect();
 }

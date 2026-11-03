@@ -240,9 +240,10 @@ func (s *Server) toolListLLMProfiles() actool.CoreTool {
 
 func (s *Server) toolSpawnTask() actool.CoreTool {
 	return wrTool("spawn_task",
-		"Create a subtask and start its exploration engine, returning task_id. Delegate a unit of work (such as a challenge or target) as an independent task. parent_ref is optional: supply the current orchestration's parent task id to establish a parent-child relationship.",
+		"Create a subtask and start its exploration engine, returning task_id. Delegate a unit of work (such as a challenge or target) as an independent task. Provide its name or target separately from its description. parent_ref is optional: supply the current orchestration's parent task id to establish a parent-child relationship.",
 		objSchema(map[string]any{
-			"description":            strParam("Task description (short title)"),
+			"name":                   strParam("Task name; include a domain or IP target here to seed the task's asset graph"),
+			"description":            strParam("Task description (execution context, separate from the name)"),
 			"goal":                   strParam("Task goal (what to achieve)"),
 			"parent_ref":             strParam("Optional: parent task id (for a parent-child relationship)"),
 			"source_task_ids":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": fmt.Sprintf("Optional: list of source task ids for read-only inheritance (up to %d). The subtask can reference assets/conclusions already discovered by these tasks as a starting point; unlike parent_ref's parent-child pointer, this inherits content.", db.MaxTaskSourceCount)},
@@ -250,10 +251,11 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 			"thinking_effort":        map[string]any{"type": "string", "enum": []string{ThinkingEffortMax, ThinkingEffortAuto}, "description": "Optional: max keeps the selected profile's configured thinking effort; auto lets the provider choose its default. Defaults to max."},
 			"timeout_seconds":        map[string]any{"type": "integer", "description": "Optional: task timeout (seconds). Triggers graceful shutdown and enters the timeout terminal state when reached; omitted or 0 = unlimited"},
 			"plan_heartbeat_seconds": map[string]any{"type": "integer", "description": "Optional: planner heartbeat interval (seconds). If this interval passes since the last planning round ended/task started with no trigger, start a planning round (deadlock safeguard and supervision of running workers). Omitted or 0 = default 600 (10min);"},
-			"seed_first_intent":      map[string]any{"type": "boolean", "description": "Optional: enable for simple tasks to issue a seed intent on creation (content = description + goal), allowing the worker to begin testing without waiting for the first planner round; default false (standard plan-then-execute flow)."},
-		}, "description", "goal"),
+			"seed_first_intent":      map[string]any{"type": "boolean", "description": "Optional: enable for simple tasks to issue a seed intent on creation (content = name + description + goal), allowing the worker to begin testing without waiting for the first planner round; default false (standard plan-then-execute flow)."},
+		}, "name", "description", "goal"),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			var a struct {
+				Name                 string          `json:"name"`
 				Description          string          `json:"description"`
 				Goal                 string          `json:"goal"`
 				ParentRef            string          `json:"parent_ref"`
@@ -265,6 +267,10 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 				SeedFirstIntent      bool            `json:"seed_first_intent"`
 			}
 			_ = json.Unmarshal(in, &a)
+			a.Name = strings.TrimSpace(a.Name)
+			if a.Name == "" {
+				return actool.Errorf("name is required"), nil
+			}
 			if strings.TrimSpace(a.Description) == "" {
 				a.Description = "Untitled Task"
 			}
@@ -315,6 +321,7 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 				llmIDs = []int64{*pin}
 			}
 			t, err := s.m.CreateTaskWithOptions(a.Description, a.Goal, db.TaskCreateOptions{
+				Name:                 a.Name,
 				SourceTaskIDs:        sourceIDs,
 				LLMProfileIDs:        llmIDs,
 				ThinkingEffort:       a.ThinkingEffort,
@@ -524,7 +531,7 @@ func (s *Server) seedOrchestrationTools() {
 // reaches an old DB otherwise. Preserves each tool's agent binding + enabled flag.
 // Bump the flag whenever these tools' schemas/descriptions change in code.
 func (s *Server) refreshBuiltinToolSchemas() {
-	const flag = "tool_schema_refresh_v8_spawn_effort"
+	const flag = "tool_schema_refresh_v9_spawn_name"
 	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
 		return
 	}

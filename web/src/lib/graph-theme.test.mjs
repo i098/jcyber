@@ -7,13 +7,15 @@ test("graph colors follow root theme changes and release their observer", (t) =>
   let dark = false;
   let notify;
   let disconnected = false;
-  const root = { classList: { contains: () => dark } };
+  const root = { classList: { contains: () => dark }, dataset: { themePreset: "default" } };
   const context = {
     fillStyle: "",
     clearRect() {},
     fillRect() {},
     getImageData() {
-      return { data: this.fillStyle === "dark" ? [20, 20, 20, 255] : [250, 250, 250, 255] };
+      if (this.fillStyle === "preset") return { data: [100, 110, 120, 255] };
+      if (this.fillStyle === "dark") return { data: [20, 20, 20, 255] };
+      return { data: [250, 250, 250, 255] };
     },
   };
   const globals = {
@@ -29,6 +31,7 @@ test("graph colors follow root theme changes and release their observer", (t) =>
       return {
         getPropertyValue(token) {
           const surface = ["--background", "--card", "--muted"].includes(token);
+          if (surface && root.dataset.themePreset !== "default") return "preset";
           return surface === dark ? "dark" : "light";
         },
       };
@@ -39,7 +42,7 @@ test("graph colors follow root theme changes and release their observer", (t) =>
       }
       observe(element, options) {
         assert.equal(element, root);
-        assert.deepEqual(options.attributeFilter, ["class"]);
+        assert.deepEqual(options.attributeFilter, ["class", "data-theme-preset"]);
       }
       disconnect() {
         disconnected = true;
@@ -71,6 +74,10 @@ test("graph colors follow root theme changes and release their observer", (t) =>
   dark = false;
   notify();
   assert.deepEqual(updates[1], light);
+  root.dataset.themePreset = "soft-pop";
+  notify();
+  assert.equal(updates[2].background, "rgba(100, 110, 120, 1)");
+  assert.equal(updates[2].foreground, light.foreground);
   stop();
   assert.equal(disconnected, true);
 });
