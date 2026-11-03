@@ -87,6 +87,20 @@ func (s *Server) providerForProfileEffortUnlocked(id int64, effort string) (llm.
 	return s.providerForEffortUnlocked(id, effort, nil, "")
 }
 
+func (s *Server) cachedProfileEntry(id int64, effort string) *provEntry {
+	if effort == ThinkingEffortMax {
+		effort = ""
+	}
+	s.provCacheMu.Lock()
+	defer s.provCacheMu.Unlock()
+	if effort != "" {
+		if entry := s.provByEffort[effortProfileKey{id: id, effort: effort}]; entry != nil {
+			return entry
+		}
+	}
+	return s.provByProfile[id]
+}
+
 func (s *Server) buildEffortProvider(id int64, baseCfg agent.Config, name, effort string) (llm.Provider, agent.Config, error) {
 	cfg := resolvedEffortConfig(baseCfg, effort)
 	providerCfg := cfg
@@ -106,6 +120,7 @@ func (s *Server) providerForEffortUnlocked(id int64, effort string, source *agen
 	key := effortProfileKey{id: id, effort: effort}
 	var desired agent.Config
 	priority := 0
+	poolExclude := false
 	if source != nil {
 		desired = resolvedEffortConfig(*source, effort)
 	}
@@ -122,6 +137,7 @@ func (s *Server) providerForEffortUnlocked(id int64, effort string, source *agen
 	}
 	if base := s.provByProfile[id]; base != nil {
 		priority = base.priority
+		poolExclude = base.poolExclude
 		if source == nil && effort == ThinkingEffortAuto {
 			applied := base.cfg
 			source = &applied
@@ -143,6 +159,7 @@ func (s *Server) providerForEffortUnlocked(id int64, effort string, source *agen
 		}
 		name = profile.Name
 		priority = profile.Priority
+		poolExclude = profile.PoolExclude
 	} else {
 		baseCfg = *source
 	}
@@ -184,7 +201,7 @@ func (s *Server) providerForEffortUnlocked(id int64, effort string, source *agen
 		shared.providers[effort] = prov
 		shared.mu.Unlock()
 		prov = &profileEffortView{shared: shared.limited, effort: effort}
-		entry := &provEntry{prov: prov, cfg: cfg, name: name, priority: priority}
+		entry := &provEntry{prov: prov, cfg: cfg, name: name, priority: priority, poolExclude: poolExclude}
 		if effort == "" {
 			if s.provByProfile == nil {
 				s.provByProfile = map[int64]*provEntry{}
@@ -256,13 +273,13 @@ func (s *Server) refreshRetryPolicyProviders() bool {
 			if effort == "" {
 				if old := s.provByProfile[id]; old != nil {
 					shared.providers[effort] = built.prov
-					s.provByProfile[id] = &provEntry{prov: old.prov, cfg: built.cfg, name: profile.Name, priority: profile.Priority}
+					s.provByProfile[id] = &provEntry{prov: old.prov, cfg: built.cfg, name: profile.Name, priority: profile.Priority, poolExclude: profile.PoolExclude}
 				}
 			} else {
 				key := effortProfileKey{id: id, effort: effort}
 				if old := s.provByEffort[key]; old != nil {
 					shared.providers[effort] = built.prov
-					s.provByEffort[key] = &provEntry{prov: old.prov, cfg: built.cfg, name: profile.Name, priority: profile.Priority}
+					s.provByEffort[key] = &provEntry{prov: old.prov, cfg: built.cfg, name: profile.Name, priority: profile.Priority, poolExclude: profile.PoolExclude}
 				}
 			}
 		}

@@ -240,9 +240,9 @@ func (s *Server) toolListLLMProfiles() actool.CoreTool {
 
 func (s *Server) toolSpawnTask() actool.CoreTool {
 	return wrTool("spawn_task",
-		"Create a subtask and start its exploration engine, returning task_id. Delegate a unit of work (such as a challenge or target) as an independent task. Provide its name or target separately from its description. parent_ref is optional: supply the current orchestration's parent task id to establish a parent-child relationship.",
+		"Create a subtask and start its exploration engine, returning task_id. Delegate a unit of work (such as a challenge or target) as an independent task. Put an optional name or target separately from its description. parent_ref is optional: supply the current orchestration's parent task id to establish a parent-child relationship.",
 		objSchema(map[string]any{
-			"name":                   strParam("Task name; include a domain or IP target here to seed the task's asset graph"),
+			"name":                   strParam("Optional task name; include a domain or IP target here to seed the task's asset graph, or put the target in the goal"),
 			"description":            strParam("Task description (execution context, separate from the name)"),
 			"goal":                   strParam("Task goal (what to achieve)"),
 			"parent_ref":             strParam("Optional: parent task id (for a parent-child relationship)"),
@@ -252,7 +252,7 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 			"timeout_seconds":        map[string]any{"type": "integer", "description": "Optional: task timeout (seconds). Triggers graceful shutdown and enters the timeout terminal state when reached; omitted or 0 = unlimited"},
 			"plan_heartbeat_seconds": map[string]any{"type": "integer", "description": "Optional: planner heartbeat interval (seconds). If this interval passes since the last planning round ended/task started with no trigger, start a planning round (deadlock safeguard and supervision of running workers). Omitted or 0 = default 600 (10min);"},
 			"seed_first_intent":      map[string]any{"type": "boolean", "description": "Optional: enable for simple tasks to issue a seed intent on creation (content = name + description + goal), allowing the worker to begin testing without waiting for the first planner round; default false (standard plan-then-execute flow)."},
-		}, "name", "description", "goal"),
+		}, "description", "goal"),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			var a struct {
 				Name                 string          `json:"name"`
@@ -268,9 +268,6 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 			}
 			_ = json.Unmarshal(in, &a)
 			a.Name = strings.TrimSpace(a.Name)
-			if a.Name == "" {
-				return actool.Errorf("name is required"), nil
-			}
 			if strings.TrimSpace(a.Goal) == "" {
 				return actool.Errorf("goal is required"), nil
 			}
@@ -564,7 +561,7 @@ func (s *Server) refreshBuiltinToolSchemas() {
 }
 
 func (s *Server) refreshSpawnTaskSchema() {
-	const flag = "tool_schema_refresh_v10_spawn_name"
+	const flag = "tool_schema_refresh_v11_spawn_optional_name"
 	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
 		return
 	}
@@ -580,9 +577,7 @@ func (s *Server) refreshSpawnTaskSchema() {
     WHEN schema #>> '{properties,description,description}' = 'Task description (short title)'
     THEN jsonb_set(schema->'properties', '{description,description}', $2::jsonb #> '{properties,description,description}')
     ELSE COALESCE(schema->'properties','{}'::jsonb) END,
-  'required', CASE WHEN COALESCE(schema->'required','[]'::jsonb) @> '["name"]'::jsonb
-    THEN COALESCE(schema->'required','[]'::jsonb)
-    ELSE COALESCE(schema->'required','[]'::jsonb) || '["name"]'::jsonb END
+  'required', COALESCE(schema->'required','[]'::jsonb) - 'name'
 ), updated_at=now() WHERE key=$1 AND system RETURNING key`, tool.Name(), string(schema)).Scan(&key); err != nil {
 		log.Printf("[tools] refresh spawn_task schema failed: %v", err)
 		return

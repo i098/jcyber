@@ -571,6 +571,48 @@ func TestTaskLLMResolutionRejectsInvalidExplicitProfile(t *testing.T) {
 	}
 }
 
+func TestTaskLLMResolutionUsesAppliedAutoProfile(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v) - skipping", err)
+	}
+	defer m.Close()
+
+	name := fmt.Sprintf("applied-auto-resolution-%d", time.Now().UnixNano())
+	profileID, err := m.pg.SaveProfile(&db.LLMProfile{
+		Name: name, Format: "openai-responses", Model: "applied-model", APIKey: "test-key", Streaming: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := m.CreateTaskWithOptions("auto resolution", "keep applied model", db.TaskCreateOptions{
+		LLMProfileIDs: []int64{profileID}, ThinkingEffort: ThinkingEffortAuto,
+	})
+	if err != nil {
+		_ = m.pg.DeleteProfile(profileID)
+		t.Fatal(err)
+	}
+	defer func() {
+		_, _ = m.DeleteTask(task.ID, DeleteTaskOptions{})
+		_ = m.pg.DeleteProfile(profileID)
+	}()
+
+	s := &Server{m: m}
+	if _, _, ok := s.providerForProfileEffort(profileID, ThinkingEffortAuto); !ok {
+		t.Fatal("applied auto provider unavailable")
+	}
+	if _, err := m.pg.Exec(`UPDATE llm_profiles SET name=$2, model='draft-model', proxy='://invalid' WHERE id=$1`, profileID, "draft-"+name); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.resolveTaskRoleLLM(task, "unbound-auto-resolution-role")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Available || got.Source != "task_chain" || got.Name != name || got.Model != "applied-model" {
+		t.Fatalf("resolution=%+v, want applied auto profile", got)
+	}
+}
+
 // An Agent binding outranks the task's LLM chain; roles left unbound keep using
 // the chain, so binding one role does not move the others off it.
 func TestTaskLLMResolutionPrefersAgentBindingOverTaskChain(t *testing.T) {

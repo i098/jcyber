@@ -121,10 +121,11 @@ type Server struct {
 
 // provEntry is a cached provider + its config for one LLM profile id.
 type provEntry struct {
-	prov     llm.Provider
-	cfg      agent.Config
-	name     string
-	priority int
+	prov        llm.Provider
+	cfg         agent.Config
+	name        string
+	priority    int
+	poolExclude bool
 }
 
 // triggeredRun is one queued P3 trigger fire awaiting its turn for an agent.
@@ -1572,10 +1573,6 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	var req createTaskReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "bad json: "+err.Error())
-		return
-	}
-	if strings.TrimSpace(req.Name) == "" {
-		writeErr(w, 400, "name is required")
 		return
 	}
 	if len(req.LLMProfileIDs) == 0 && req.LLMProfileID != nil {

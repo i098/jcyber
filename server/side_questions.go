@@ -195,23 +195,26 @@ func (s *Server) cancelWorkerSide(taskID string, expID, iid int64) {
 }
 
 func (s *Server) sideProvider(model sidequestion.Model) (llm.Provider, error) {
-	var p llm.Provider
-	var cfg agent.Config
-	var ok bool
 	if model.ProfileID > 0 {
-		current, exists := s.loadProfileConfig(model.ProfileID)
-		effort, matched := sideModelEffort(current, model)
-		if !exists || !matched {
+		s.profileReapplyMu.RLock()
+		defer s.profileReapplyMu.RUnlock()
+		profile, err := s.m.pg.ProfileByID(model.ProfileID)
+		if err != nil || profile == nil {
 			return nil, errors.New("Model profile was deleted or changed; run the main Agent first to update the context")
 		}
-		p, cfg, ok = s.providerForProfileEffort(model.ProfileID, effort)
-	} else {
-		s.cfgMu.Lock()
-		p, cfg, ok = s.llmDirect, s.llmCfg, s.llmOn
-		s.cfgMu.Unlock()
-		if effort, matched := sideModelEffort(cfg, model); matched && effort != "" {
-			p, cfg, ok = s.globalDirectAutoProvider()
+		for _, effort := range []string{"", ThinkingEffortAuto} {
+			prov, cfg, ok := s.providerForProfileEffortUnlocked(model.ProfileID, effort)
+			if ok && prov != nil && sideModel(cfg, model.ProfileID, model.Name).Identity == model.Identity {
+				return prov, nil
+			}
 		}
+		return nil, errors.New("Model profile was deleted or changed; run the main Agent first to update the context")
+	}
+	s.cfgMu.Lock()
+	p, cfg, ok := s.llmDirect, s.llmCfg, s.llmOn
+	s.cfgMu.Unlock()
+	if effort, matched := sideModelEffort(cfg, model); matched && effort != "" {
+		p, cfg, ok = s.globalDirectAutoProvider()
 	}
 	if !ok || p == nil || sideModel(cfg, model.ProfileID, model.Name).Identity != model.Identity {
 		return nil, errors.New("Model profile was deleted or changed; run the main Agent first to update the context")

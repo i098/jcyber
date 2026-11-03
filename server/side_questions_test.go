@@ -413,7 +413,7 @@ func TestSideCheckpointPersistsBeforeAdmissionAndRestart(t *testing.T) {
 	}
 }
 
-func TestSideRejectsDeletedOrChangedCachedProfile(t *testing.T) {
+func TestSideUsesAppliedCachedProfileUntilChangedOrDeleted(t *testing.T) {
 	f := newSideHTTPFixture(t)
 	p := &db.LLMProfile{Name: "btw-cached-profile", Format: "openai", BaseURL: "http://fixture.invalid", APIKey: "test-only", Model: "fixture", Streaming: true}
 	id, err := f.m.pg.SaveProfile(p)
@@ -433,8 +433,16 @@ func TestSideRejectsDeletedOrChangedCachedProfile(t *testing.T) {
 	if _, err = f.m.pg.Exec(`UPDATE llm_profiles SET model='changed' WHERE id=$1`, id); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = f.s.sideProvider(model); err != nil {
+		t.Fatalf("unapplied draft invalidated running profile: %v", err)
+	}
+	changed, ok := f.s.loadProfileConfig(id)
+	if !ok {
+		t.Fatal("changed profile unavailable")
+	}
+	f.s.provByProfile[id] = &provEntry{prov: f.provider, cfg: changed}
 	if _, err = f.s.sideProvider(model); err == nil {
-		t.Fatal("cached profile bypassed model identity check")
+		t.Fatal("applied model change retained old snapshot")
 	}
 	if err = f.m.pg.DeleteProfile(id); err != nil {
 		t.Fatal(err)
@@ -461,6 +469,16 @@ func TestSideAcceptsTaskEffortProfile(t *testing.T) {
 		if prov, err := f.s.sideProvider(model); err != nil || prov == nil {
 			t.Fatalf("side provider for %s = %v, %v", effort, prov, err)
 		}
+	}
+	f.s.provCacheMu.Lock()
+	delete(f.s.provByProfile, id)
+	f.s.provCacheMu.Unlock()
+	if _, err := f.m.pg.Exec(`UPDATE llm_profiles SET model='draft', proxy='://invalid' WHERE id=$1`, id); err != nil {
+		t.Fatal(err)
+	}
+	autoModel := sideModel(resolvedEffortConfig(cfg, ThinkingEffortAuto), id, p.Name)
+	if prov, err := f.s.sideProvider(autoModel); err != nil || prov == nil {
+		t.Fatalf("auto-only applied side provider = %v, %v", prov, err)
 	}
 }
 

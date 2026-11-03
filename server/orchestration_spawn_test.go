@@ -8,15 +8,6 @@ import (
 	"time"
 )
 
-func TestSpawnTaskRequiresName(t *testing.T) {
-	s := &Server{}
-	in := json.RawMessage(`{"description":"Scan target","goal":"Find exposed admin routes"}`)
-	result, err := s.toolSpawnTask().Call(context.Background(), in, nil)
-	if err == nil && !result.IsError {
-		t.Fatalf("spawn_task accepted a task without a name: %+v", result)
-	}
-}
-
 func TestSpawnTaskPreservesNamedTarget(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
@@ -63,7 +54,7 @@ func TestSpawnTaskPreservesNamedTarget(t *testing.T) {
 	t.Fatalf("seeded assets = %+v, want %q", assets, wantURL)
 }
 
-func TestSpawnTaskSeedsGoalTargetWithoutDescriptionReference(t *testing.T) {
+func TestSpawnTaskSeedsGoalTargetWithoutNameOrDescriptionReference(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Skipf("postgres unavailable (%v)", err)
@@ -71,9 +62,9 @@ func TestSpawnTaskSeedsGoalTargetWithoutDescriptionReference(t *testing.T) {
 	defer m.Close()
 	s := newAdmissionTestServer(m, func(*Task) bool { return false })
 	host := fmt.Sprintf("goal-%d.example.test", time.Now().UnixNano())
-	name := fmt.Sprintf("Domain dig %d", time.Now().UnixNano())
+	goal := "Map http://" + host
 	in, err := json.Marshal(map[string]string{
-		"name": name, "description": "Use https://docs.vendor.net as reference", "goal": "Map http://" + host,
+		"description": "Use https://docs.vendor.net as reference", "goal": goal,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -84,15 +75,18 @@ func TestSpawnTaskSeedsGoalTargetWithoutDescriptionReference(t *testing.T) {
 	}
 	var spawned *Task
 	for _, task := range m.List() {
-		if task.Name == name {
+		if task.Goal == goal {
 			spawned = task
 			break
 		}
 	}
 	if spawned == nil {
-		t.Fatalf("spawn_task did not create task named %q", name)
+		t.Fatalf("spawn_task did not create task with goal %q", goal)
 	}
 	defer func() { _, _ = m.DeleteTask(spawned.ID, DeleteTaskOptions{DeleteAssets: true}) }()
+	if spawned.Name != "" || taskCreationName(spawned) != "" {
+		t.Fatalf("spawn_task assigned a name when omitted: %q", spawned.Name)
+	}
 	assets, err := m.Assets().QueryByTask(mustTaskID(t, spawned.ID), "", 20, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -141,7 +135,7 @@ func TestSpawnSchemaRefreshPreservesSavedEdits(t *testing.T) {
 	if !existed {
 		t.Cleanup(func() { _, _ = m.pg.Exec(`DELETE FROM tools WHERE key=$1`, tool.Name()) })
 	}
-	const flag = "tool_schema_refresh_v10_spawn_name"
+	const flag = "tool_schema_refresh_v11_spawn_optional_name"
 	previous, present, err := m.pg.GetSetting(flag)
 	if err != nil {
 		t.Fatal(err)
@@ -153,7 +147,7 @@ func TestSpawnSchemaRefreshPreservesSavedEdits(t *testing.T) {
 			_, _ = m.pg.Exec(`DELETE FROM settings WHERE key=$1`, flag)
 		}
 	})
-	custom := json.RawMessage(`{"type":"object","properties":{"description":{"type":"string","description":"saved context","default":"keep me"},"goal":{"type":"string","description":"saved goal"},"timeout_seconds":{"type":"integer","default":23}},"required":["description","goal"]}`)
+	custom := json.RawMessage(`{"type":"object","properties":{"description":{"type":"string","description":"saved context","default":"keep me"},"goal":{"type":"string","description":"saved goal"},"timeout_seconds":{"type":"integer","default":23}},"required":["name","description","goal"]}`)
 	if err := m.pg.UpdateTool(tool.Name(), "saved spawn instructions", custom, json.RawMessage(`["worker"]`), false); err != nil {
 		t.Fatal(err)
 	}
@@ -192,8 +186,8 @@ func TestSpawnSchemaRefreshPreservesSavedEdits(t *testing.T) {
 			names++
 		}
 	}
-	if names != 1 {
-		t.Fatalf("required name count = %d, want 1", names)
+	if names != 0 {
+		t.Fatalf("required name count = %d, want 0", names)
 	}
 	legacy := json.RawMessage(`{"type":"object","properties":{"description":{"type":"string","description":"Task description (short title)","default":"keep me"},"goal":{"type":"string"}},"required":["description","goal"]}`)
 	if err := m.pg.UpdateTool(tool.Name(), "saved spawn instructions", legacy, json.RawMessage(`["worker"]`), false); err != nil {

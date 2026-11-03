@@ -17,7 +17,7 @@ type taskLLMResolution struct {
 	Reason    string `json:"reason,omitempty"`
 }
 
-func (s *Server) resolutionFromProfile(p *db.LLMProfile, source string) taskLLMResolution {
+func (s *Server) resolutionFromProfile(p *db.LLMProfile, source, effort string) taskLLMResolution {
 	if p == nil {
 		return taskLLMResolution{Source: source, Reason: "LLM profile does not exist"}
 	}
@@ -30,13 +30,11 @@ func (s *Server) resolutionFromProfile(p *db.LLMProfile, source string) taskLLMR
 		Source:    source,
 	}
 	s.profileReapplyMu.RLock()
-	_, cfg, ok := s.providerForProfileEffortUnlocked(p.ID, "")
+	_, cfg, ok := s.providerForProfileEffortUnlocked(p.ID, effort)
 	if ok {
-		s.provCacheMu.Lock()
-		if cached := s.provByProfile[p.ID]; cached != nil && cached.name != "" {
+		if cached := s.cachedProfileEntry(p.ID, effort); cached != nil && cached.name != "" {
 			result.Name = cached.name
 		}
-		s.provCacheMu.Unlock()
 	}
 	s.profileReapplyMu.RUnlock()
 	if !ok {
@@ -69,7 +67,7 @@ func (s *Server) resolveTaskRoleLLM(t *Task, agentKey string) (taskLLMResolution
 			return taskLLMResolution{}, fmt.Errorf("load agent LLM profile: %w", err)
 		}
 		if p != nil {
-			resolved := s.resolutionFromProfile(p, "agent_binding")
+			resolved := s.resolutionFromProfile(p, "agent_binding", t.ThinkingEffort)
 			if resolved.Available {
 				return resolved, nil
 			}
@@ -84,7 +82,7 @@ func (s *Server) resolveTaskRoleLLM(t *Task, agentKey string) (taskLLMResolution
 		if err != nil {
 			return taskLLMResolution{}, fmt.Errorf("load task LLM profile: %w", err)
 		}
-		return s.resolutionFromProfile(p, "task_chain"), nil
+		return s.resolutionFromProfile(p, "task_chain", t.ThinkingEffort), nil
 	}
 	s.cfgMu.Lock()
 	on, name, cfg, appliedID := s.llmOn, s.llmProf, s.llmCfg, s.llmProfileID

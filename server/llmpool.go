@@ -61,6 +61,15 @@ func newLLMHealthRegistry(pg *db.DB) *llmpool.Registry {
 // provider cache so every agent pointing at the same profile shares one provider
 // (hence one rate limiter). Returns nil when the profile can't be built.
 func (s *Server) poolMember(p *db.LLMProfile, effort string) *llmpool.Member {
+	if !p.IsDefault {
+		excluded := p.PoolExclude
+		if cached := s.cachedProfileEntry(p.ID, effort); cached != nil {
+			excluded = cached.poolExclude
+		}
+		if excluded {
+			return nil
+		}
+	}
 	prov, cfg, ok := s.providerForProfileEffortUnlocked(p.ID, effort)
 	if !ok {
 		return nil
@@ -79,22 +88,13 @@ func (s *Server) poolMember(p *db.LLMProfile, effort string) *llmpool.Member {
 
 func (s *Server) poolMetadata(p *db.LLMProfile, cfg agent.Config, effort string) (string, string, string, int) {
 	name, model, format, priority := p.Name, p.Model, p.Format, p.Priority
-	cacheEffort := effort
-	if cacheEffort == ThinkingEffortMax {
-		cacheEffort = ""
-	}
-	s.provCacheMu.Lock()
-	cached := s.provByEffort[effortProfileKey{id: p.ID, effort: cacheEffort}]
-	if cacheEffort == "" || cached == nil {
-		cached = s.provByProfile[p.ID]
-	}
+	cached := s.cachedProfileEntry(p.ID, effort)
 	if cached != nil && resolvedEffortConfig(cached.cfg, effort) == cfg {
 		if cached.name != "" {
 			name = cached.name
 		}
 		model, format, priority = cfg.Model, cfg.Provider(), cached.priority
 	}
-	s.provCacheMu.Unlock()
 	return name, model, format, priority
 }
 
@@ -123,7 +123,7 @@ func (s *Server) poolChain(headID int64, headProv llm.Provider, headCfg agent.Co
 	if s.m == nil || s.m.pg == nil || !s.m.LLMPoolEnabled() {
 		return nil
 	}
-	profs, err := s.m.pg.PoolProfiles()
+	profs, err := s.m.pg.ListProfiles()
 	if err != nil {
 		log.Printf("[llmpool] Failed to read rotation chain: %v", err)
 		return nil
@@ -229,6 +229,8 @@ type LLMPoolMemberStatus struct {
 // on, the resolved chain order, and each profile's breaker state. Excluded
 // profiles are listed too (flagged), so the user can see why one isn't in line.
 func (s *Server) llmPoolStatus() map[string]any {
+	s.profileReapplyMu.RLock()
+	defer s.profileReapplyMu.RUnlock()
 	out := map[string]any{
 		"enabled":       false,
 		"bind_fallback": false,
@@ -256,6 +258,17 @@ func (s *Server) llmPoolStatus() map[string]any {
 			Priority: p.Priority, Active: p.IsDefault, Excluded: p.PoolExclude,
 			State: "ok", Fails: st.Fails, Trips: st.Trips,
 			LastError: st.LastError,
+		}
+		cached := s.cachedProfileEntry(p.ID, "")
+		if cached == nil {
+			cached = s.cachedProfileEntry(p.ID, ThinkingEffortAuto)
+		}
+		if cached != nil {
+			if cached.name != "" {
+				m.Name = cached.name
+			}
+			m.Model, m.Format = cached.cfg.Model, cached.cfg.Provider()
+			m.Priority, m.Excluded = cached.priority, cached.poolExclude
 		}
 		if st.Open() {
 			m.State = "tripped"

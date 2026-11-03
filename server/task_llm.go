@@ -454,26 +454,30 @@ func isRetryableStreamError(err error) bool {
 // CompactionWindow mirrors current()'s precedence so the context window always
 // matches the provider the role will actually stream on.
 func (r *taskLLMRuntime) CompactionWindow() int {
-	if _, cfg, ok := r.s.agentBindingProvider(r.agentKey); ok {
-		return cfg.CompactionWindow()
-	}
 	taskNum, err := parseTaskID(r.taskID)
 	if err != nil {
 		return (agent.Config{}).CompactionWindow()
+	}
+	pt, err := r.s.m.pg.GetTask(taskNum)
+	if err != nil || pt == nil {
+		return (agent.Config{}).CompactionWindow()
+	}
+	if _, cfg, ok := r.s.agentBindingProviderEffort(r.agentKey, pt.ThinkingEffort); ok {
+		return cfg.CompactionWindow()
 	}
 	chain, err := r.s.m.pg.TaskLLMProfiles(taskNum)
 	if err != nil {
 		return (agent.Config{}).CompactionWindow()
 	}
 	if len(chain) == 0 {
-		if _, cfg, ok := r.s.globalProvider(); ok {
+		if _, cfg, ok := r.s.globalProviderForEffort(pt.ThinkingEffort); ok {
 			return cfg.CompactionWindow()
 		}
 		return (agent.Config{}).CompactionWindow()
 	}
 	minimum := 0
 	for _, entry := range chain {
-		if cfg, ok := r.s.loadProfileConfig(entry.ProfileID); ok {
+		if _, cfg, ok := r.s.providerForProfileEffort(entry.ProfileID, pt.ThinkingEffort); ok {
 			window := cfg.CompactionWindow()
 			if minimum == 0 || window < minimum {
 				minimum = window

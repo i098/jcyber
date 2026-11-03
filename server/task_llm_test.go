@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"pta/agent"
-	"pta/db"
 	"normasdk/harness"
 	"normasdk/llm"
+	"pta/agent"
+	"pta/db"
 )
 
 type scriptedLLMProvider struct {
@@ -52,6 +52,59 @@ func accumulateStreamForTest(ctx context.Context, stream func(context.Context, l
 		acc.Add(ev)
 	}
 	return acc.Message(), acc.StopReason, acc.Usage, nil
+}
+
+func TestTaskCompactionWindowUsesAppliedAutoChain(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v) - skipping", err)
+	}
+	defer m.Close()
+
+	stamp := time.Now().UnixNano()
+	firstID, err := m.pg.SaveProfile(&db.LLMProfile{
+		Name: fmt.Sprintf("window-first-%d", stamp), Format: "openai-responses",
+		Model: "first-model", APIKey: "test-key", Streaming: true, ContextWindowK: 64,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondID, err := m.pg.SaveProfile(&db.LLMProfile{
+		Name: fmt.Sprintf("window-second-%d", stamp), Format: "openai-responses",
+		Model: "second-model", APIKey: "test-key", Streaming: true, ContextWindowK: 32,
+	})
+	if err != nil {
+		_ = m.pg.DeleteProfile(firstID)
+		t.Fatal(err)
+	}
+	task, err := m.CreateTaskWithOptions("auto compaction", "keep applied window", db.TaskCreateOptions{
+		LLMProfileIDs: []int64{firstID, secondID}, ThinkingEffort: ThinkingEffortAuto,
+	})
+	if err != nil {
+		_ = m.pg.DeleteProfile(firstID)
+		_ = m.pg.DeleteProfile(secondID)
+		t.Fatal(err)
+	}
+	defer func() {
+		_, _ = m.DeleteTask(task.ID, DeleteTaskOptions{})
+		_ = m.pg.DeleteProfile(firstID)
+		_ = m.pg.DeleteProfile(secondID)
+	}()
+
+	s := &Server{m: m}
+	for _, id := range []int64{firstID, secondID} {
+		if _, _, ok := s.providerForProfileEffort(id, ThinkingEffortAuto); !ok {
+			t.Fatalf("applied auto provider %d unavailable", id)
+		}
+	}
+	if _, err := m.pg.Exec(`UPDATE llm_profiles SET context_window_k=1000, proxy='://invalid' WHERE id=$1`, secondID); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &taskLLMRuntime{s: s, taskID: task.ID, agentKey: "unbound-window-role"}
+	want := (agent.Config{ContextWindowK: 32}).CompactionWindow()
+	if got := runtime.CompactionWindow(); got != want {
+		t.Fatalf("compaction window = %d, want applied chain minimum %d", got, want)
+	}
 }
 
 // withZeroRetryBackoff sets the same-provider retry backoff to zero for the

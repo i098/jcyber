@@ -3176,10 +3176,6 @@ function CreateTaskSheet({
   }
 
   async function createTask() {
-    if (!name.trim()) {
-      toast.error("Enter a name that includes the target");
-      return;
-    }
     if (!goal.trim()) {
       toast.error("Enter a goal");
       return;
@@ -3251,7 +3247,7 @@ function CreateTaskSheet({
       >
         <SheetHeader className="border-b p-6">
           <SheetTitle>New Task</SheetTitle>
-          <SheetDescription>Include the test target in the Name, then enter a goal. Description adds optional context.</SheetDescription>
+          <SheetDescription>Include the test target in the Name or Goal. Description adds optional context.</SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto p-6">
@@ -3273,13 +3269,12 @@ function CreateTaskSheet({
               portalContainer={sheetContentRef}
             />
             <div className="grid gap-2">
-              <Label htmlFor="name">Name (required; include target)</Label>
+              <Label htmlFor="name">Name (optional)</Label>
               <Input
                 id="name"
                 placeholder="Short title with target, for example: example.com scan"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                required
               />
             </div>
             <Field>

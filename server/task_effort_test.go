@@ -538,7 +538,7 @@ func TestInvalidActiveProfileSaveKeepsRunningLimiter(t *testing.T) {
 	checkAutoBlocked("retry policy")
 	update, err = json.Marshal(map[string]any{
 		"id": fallbackID, "name": "draft-" + fallbackName, "format": "openai-responses", "base_url": srv.URL,
-		"model": "draft-fallback", "proxy": "://invalid", "streaming": true, "priority": 0,
+		"model": "draft-fallback", "proxy": "://invalid", "streaming": true, "priority": 0, "pool_exclude": true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -556,6 +556,29 @@ func TestInvalidActiveProfileSaveKeepsRunningLimiter(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = m.pg.DeleteProfile(otherID) }()
+	excludedID, err := m.pg.SaveProfile(&db.LLMProfile{
+		Name: fmt.Sprintf("excluded-fallback-%d", time.Now().UnixNano()), Format: "openai-responses",
+		BaseURL: srv.URL, Model: "excluded-model", APIKey: "test-key", Streaming: true, Priority: 20, PoolExclude: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.pg.DeleteProfile(excludedID) }()
+	if _, _, ok := s.providerForProfileEffort(excludedID, ""); !ok {
+		t.Fatal("excluded profile unavailable to explicit binding")
+	}
+	update, err = json.Marshal(map[string]any{
+		"id": excludedID, "name": "draft-excluded", "format": "openai-responses", "base_url": srv.URL,
+		"model": "draft-excluded", "proxy": "://invalid", "streaming": true, "priority": 20, "pool_exclude": false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder = httptest.NewRecorder()
+	s.pgSaveProfile(recorder, httptest.NewRequest(http.MethodPost, "/api/llm/profiles", bytes.NewReader(update)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("invalid excluded profile save: %d %s", recorder.Code, recorder.Body.String())
+	}
 	t.Setenv("JCYBER_LLM_ROUND_ROBIN", "1")
 	if err := m.SetLLMPoolEnabled(true); err != nil {
 		t.Fatal(err)
@@ -582,6 +605,8 @@ func TestInvalidActiveProfileSaveKeepsRunningLimiter(t *testing.T) {
 				fallbackIndex = i
 			} else if member.ID == otherID {
 				otherIndex = i
+			} else if member.ID == excludedID {
+				t.Fatalf("%s effort admitted applied-excluded profile: %+v", effort, member)
 			}
 		}
 		if fallback == nil || fallback.Name != fallbackName || fallback.Model != "fallback-model" || fallback.Format != "openai-responses" || fallback.Priority != 5 || fallback.Rank != 5 {
@@ -590,6 +615,28 @@ func TestInvalidActiveProfileSaveKeepsRunningLimiter(t *testing.T) {
 		if otherIndex < 0 || fallbackIndex >= otherIndex {
 			t.Fatalf("%s effort ordered draft priority ahead of applied priority: fallback index %d, other index %d", effort, fallbackIndex, otherIndex)
 		}
+	}
+	status, ok := s.llmPoolStatus()["chain"].([]LLMPoolMemberStatus)
+	if !ok {
+		t.Fatal("pool status missing chain")
+	}
+	foundIncluded, foundExcluded := false, false
+	for _, member := range status {
+		switch member.ProfileID {
+		case i64s(fallbackID):
+			foundIncluded = true
+			if member.Excluded || member.Priority != 5 || member.Name != fallbackName {
+				t.Fatalf("pool status used included profile draft: %+v", member)
+			}
+		case i64s(excludedID):
+			foundExcluded = true
+			if !member.Excluded || member.Model != "excluded-model" {
+				t.Fatalf("pool status used excluded profile draft: %+v", member)
+			}
+		}
+	}
+	if !foundIncluded || !foundExcluded {
+		t.Fatalf("pool status omitted profiles: included=%v excluded=%v", foundIncluded, foundExcluded)
 	}
 }
 
