@@ -173,7 +173,7 @@ func (s *Server) providerForEffortUnlocked(id int64, effort string, source *agen
 		shared.providers[effort] = prov
 		shared.mu.Unlock()
 		prov = &profileEffortView{shared: shared.limited, effort: effort}
-		entry := &provEntry{prov: prov, cfg: cfg}
+		entry := &provEntry{prov: prov, cfg: cfg, name: name}
 		if effort == "" {
 			if s.provByProfile == nil {
 				s.provByProfile = map[int64]*provEntry{}
@@ -245,13 +245,13 @@ func (s *Server) refreshRetryPolicyProviders() bool {
 			if effort == "" {
 				if old := s.provByProfile[id]; old != nil {
 					shared.providers[effort] = built.prov
-					s.provByProfile[id] = &provEntry{prov: old.prov, cfg: built.cfg}
+					s.provByProfile[id] = &provEntry{prov: old.prov, cfg: built.cfg, name: profile.Name}
 				}
 			} else {
 				key := effortProfileKey{id: id, effort: effort}
 				if old := s.provByEffort[key]; old != nil {
 					shared.providers[effort] = built.prov
-					s.provByEffort[key] = &provEntry{prov: old.prov, cfg: built.cfg}
+					s.provByEffort[key] = &provEntry{prov: old.prov, cfg: built.cfg, name: profile.Name}
 				}
 			}
 		}
@@ -321,11 +321,6 @@ func (s *Server) resolveGlobalProviderForEffort(effort string, withFailover bool
 	if s.m == nil {
 		return nil, agent.Config{}, false
 	}
-	if appliedProfileID != 0 && s.m.pg != nil {
-		if profile, err := s.m.pg.ProfileByID(appliedProfileID); err == nil && profile != nil {
-			name = profile.Name
-		}
-	}
 	prov, cfg, ok := s.providerForEffortUnlocked(appliedProfileID, effort, &baseCfg, name)
 	if !ok {
 		return nil, agent.Config{}, false
@@ -344,7 +339,7 @@ func (s *Server) resolveGlobalProviderForEffort(effort string, withFailover bool
 		if s.globalByEffort == nil {
 			s.globalByEffort = map[string]*provEntry{}
 		}
-		s.globalByEffort[effort] = &provEntry{prov: prov, cfg: cfg}
+		s.globalByEffort[effort] = &provEntry{prov: prov, cfg: cfg, name: name}
 	}
 	s.provCacheMu.Unlock()
 	return prov, cfg, true

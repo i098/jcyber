@@ -123,6 +123,7 @@ type Server struct {
 type provEntry struct {
 	prov llm.Provider
 	cfg  agent.Config
+	name string
 }
 
 // triggeredRun is one queued P3 trigger fire awaiting its turn for an agent.
@@ -337,9 +338,6 @@ func (s *Server) loadLLMConfig() (agent.Config, bool) {
 	if cfg.APIKey == "" {
 		return cfg, false
 	}
-	s.cfgMu.Lock()
-	s.llmProf = p.Name
-	s.cfgMu.Unlock()
 	return cfg, true
 }
 
@@ -425,9 +423,6 @@ func (s *Server) reapplyActiveProfileWithoutTaskAgentInvalidation() bool {
 			log.Printf("[engine] reapply profile %d failed: %v", profile.ID, err)
 			continue
 		}
-		s.cfgMu.Lock()
-		s.llmProf = profile.Name
-		s.cfgMu.Unlock()
 		log.Printf("[engine] LLM reapplied from profile %d: %s / %s", profile.ID, cfg.Provider(), cfg.Model)
 		return true
 	}
@@ -491,18 +486,9 @@ func (s *Server) rebuildCurrentLLM() error {
 		}
 	}()
 	s.cfgMu.Lock()
-	on := s.llmOn
+	cfg, on := s.llmCfg, s.llmOn
 	s.cfgMu.Unlock()
 	if !on {
-		return nil
-	}
-	cfg, ok := s.loadLLMConfig()
-	if !ok {
-		s.cfgMu.Lock()
-		cfg, ok = s.llmCfg, s.llmOn && s.llmProfileID == 0
-		s.cfgMu.Unlock()
-	}
-	if !ok {
 		return nil
 	}
 	if err := s.applyLLMWithoutTaskAgentInvalidation(cfg); err != nil {
@@ -521,6 +507,7 @@ func (s *Server) applyLLMWithoutTaskAgentInvalidation(cfg agent.Config) error {
 	s.cfgMu.Lock()
 	var prov llm.Provider
 	var appliedProfileID int64
+	reusedApplied := false
 	// A persisted active profile must use the same cached provider as task chains
 	// and Agent bindings, otherwise each path owns a separate rate limiter.
 	if active, _ := s.m.pg.ActiveProfile(); active != nil && s.profileConfigMatches(active.ID, cfg) {
@@ -534,13 +521,18 @@ func (s *Server) applyLLMWithoutTaskAgentInvalidation(cfg agent.Config) error {
 			appliedProfileID = 0
 		}
 	}
+	if prov == nil && s.llmOn && s.llmProfileID != 0 && s.llmCfg == cfg && s.llmDirect != nil {
+		prov = s.llmDirect
+		appliedProfileID = s.llmProfileID
+		reusedApplied = true
+	}
 	if prov == nil {
 		if s.llmOn && s.llmProfileID == 0 && s.llmCfg == cfg && s.llmDirect != nil {
 			prov = s.llmDirect
 		} else {
 			s.resetEnvironmentEffortProviders()
 			var ok bool
-			prov, _, ok = s.providerForEffortUnlocked(0, "", &cfg, s.llmProf)
+			prov, _, ok = s.providerForEffortUnlocked(0, "", &cfg, "")
 			if !ok {
 				s.cfgMu.Unlock()
 				return fmt.Errorf("provider init failed for %s / %s", cfg.Provider(), cfg.Model)
@@ -580,6 +572,13 @@ func (s *Server) applyLLMWithoutTaskAgentInvalidation(cfg agent.Config) error {
 	s.llmCfg = cfg
 	s.llmProfileID = appliedProfileID
 	s.llmOn = true
+	if appliedProfileID == 0 {
+		s.llmProf = ""
+	} else if !reusedApplied {
+		if profile, err := s.m.pg.ProfileByID(appliedProfileID); err == nil && profile != nil {
+			s.llmProf = profile.Name
+		}
+	}
 	if configChanged {
 		s.resetGlobalAutoProvider()
 	}

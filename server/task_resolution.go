@@ -29,14 +29,25 @@ func (s *Server) resolutionFromProfile(p *db.LLMProfile, source string) taskLLMR
 		Model:     p.Model,
 		Source:    source,
 	}
-	if p.APIKey == "" {
-		result.Reason = "LLM profile has no API key"
+	s.profileReapplyMu.RLock()
+	_, cfg, ok := s.providerForProfileEffortUnlocked(p.ID, "")
+	if ok {
+		s.provCacheMu.Lock()
+		if cached := s.provByProfile[p.ID]; cached != nil && cached.name != "" {
+			result.Name = cached.name
+		}
+		s.provCacheMu.Unlock()
+	}
+	s.profileReapplyMu.RUnlock()
+	if !ok {
+		if p.APIKey == "" {
+			result.Reason = "LLM profile has no API key"
+		} else {
+			result.Reason = "Invalid or unsupported LLM profile format"
+		}
 		return result
 	}
-	if _, _, ok := s.providerForProfile(p.ID); !ok {
-		result.Reason = "Invalid or unsupported LLM profile format"
-		return result
-	}
+	result.Format, result.Model = cfg.Provider(), cfg.Model
 	result.Available = true
 	return result
 }
@@ -75,27 +86,22 @@ func (s *Server) resolveTaskRoleLLM(t *Task, agentKey string) (taskLLMResolution
 		}
 		return s.resolutionFromProfile(p, "task_chain"), nil
 	}
-	p, err := s.m.pg.ActiveProfile()
-	if err != nil {
-		return taskLLMResolution{}, fmt.Errorf("load global LLM profile: %w", err)
-	}
-	if p != nil {
-		resolved := s.resolutionFromProfile(p, "global_profile")
-		if resolved.Available {
-			return resolved, nil
-		}
-	}
 	s.cfgMu.Lock()
-	on, name, cfg := s.llmOn, s.llmProf, s.llmCfg
+	on, name, cfg, appliedID := s.llmOn, s.llmProf, s.llmCfg, s.llmProfileID
 	s.cfgMu.Unlock()
 	if on {
 		if name == "" {
 			name = "Global Profile"
 		}
-		return taskLLMResolution{
+		resolved := taskLLMResolution{
 			Name: name, Format: cfg.Provider(), Model: cfg.Model,
 			Source: "environment", Available: true,
-		}, nil
+		}
+		if appliedID != 0 {
+			resolved.ProfileID = &appliedID
+			resolved.Source = "global_profile"
+		}
+		return resolved, nil
 	}
 	return taskLLMResolution{Source: "global", Reason: "No available LLM profile"}, nil
 }

@@ -421,9 +421,10 @@ func TestInvalidActiveProfileSaveKeepsRunningLimiter(t *testing.T) {
 		t.Fatalf("profile rename: %d %s", recorder.Code, recorder.Body.String())
 	}
 	checkAutoBlocked("renamed profile")
+	draftName := "draft-" + profile.Name
 	update, err = json.Marshal(map[string]any{
-		"id": id, "name": profile.Name, "format": profile.Format, "base_url": profile.BaseURL,
-		"model": profile.Model, "proxy": "://invalid", "rate_per_minute": 1, "streaming": true,
+		"id": id, "name": draftName, "format": profile.Format, "base_url": profile.BaseURL,
+		"model": "draft-model", "proxy": "://invalid", "rate_per_minute": 1, "streaming": true,
 		"thinking_type": profile.ThinkingType, "reasoning_effort": profile.ReasoningEffort,
 	})
 	if err != nil {
@@ -435,12 +436,28 @@ func TestInvalidActiveProfileSaveKeepsRunningLimiter(t *testing.T) {
 		t.Fatalf("invalid profile save: %d %s", recorder.Code, recorder.Body.String())
 	}
 	saved, err := m.pg.ProfileByID(id)
-	if err != nil || saved == nil || saved.Proxy != "://invalid" {
+	if err != nil || saved == nil || saved.Proxy != "://invalid" || saved.Name != draftName || saved.Model != "draft-model" {
 		t.Fatalf("draft proxy missing: profile = %+v, error = %v", saved, err)
 	}
 	s.reapplyActiveProfile()
 	if s.llmCfg.Proxy != "" {
 		t.Fatalf("invalid proxy replaced running config: %q", s.llmCfg.Proxy)
+	}
+	global, err := s.resolveTaskRoleLLM(&Task{}, "unbound-resolution-role")
+	if err != nil || !global.Available || global.ProfileID == nil || *global.ProfileID != id || global.Name != profile.Name || global.Model != profile.Model {
+		t.Fatalf("global resolution reported draft: %+v, error = %v", global, err)
+	}
+	chainTask := &Task{LLMProfileIDs: []int64{id}, ActiveLLMProfileID: &id}
+	chain, err := s.resolveTaskRoleLLM(chainTask, "unbound-resolution-role")
+	if err != nil || !chain.Available || chain.Name != profile.Name || chain.Model != profile.Model {
+		t.Fatalf("task chain reported draft: %+v, error = %v", chain, err)
+	}
+	if err := s.rebuildCurrentLLM(); err != nil {
+		t.Fatal(err)
+	}
+	global, err = s.resolveTaskRoleLLM(&Task{}, "unbound-resolution-role")
+	if err != nil || global.Name != profile.Name || global.Model != profile.Model {
+		t.Fatalf("settings rebuild reported draft: %+v, error = %v", global, err)
 	}
 	s.resetGlobalAutoProvider()
 	checkAutoBlocked("invalid draft")
@@ -474,6 +491,109 @@ func TestInvalidActiveProfileSaveKeepsRunningLimiter(t *testing.T) {
 		t.Fatalf("fallback profile retry config = %+v, available = %v", fallbackCfg.Retry, ok)
 	}
 	checkAutoBlocked("retry policy")
+}
+
+func TestKeylessActivationSettingsRebuildsAppliedChat(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v)", err)
+	}
+	defer m.Close()
+	srv, requests := effortWireServer(t)
+	defer srv.Close()
+	previous, err := m.pg.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().UnixNano()
+	appliedID, err := m.pg.SaveProfile(&db.LLMProfile{
+		Name: fmt.Sprintf("settings-applied-%d", stamp), Format: "openai-responses",
+		BaseURL: srv.URL, Model: "settings-model", APIKey: "test-key", Streaming: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keylessID int64
+	defer func() {
+		if previous != nil {
+			_ = m.pg.SetActiveProfile(previous.ID)
+		} else {
+			_, _ = m.pg.Exec(`UPDATE llm_profiles SET is_default=false WHERE id=$1 OR id=$2`, appliedID, keylessID)
+		}
+		_ = m.pg.DeleteProfile(appliedID)
+		if keylessID != 0 {
+			_ = m.pg.DeleteProfile(keylessID)
+		}
+	}()
+	keylessID, err = m.pg.SaveProfile(&db.LLMProfile{
+		Name: fmt.Sprintf("settings-keyless-%d", stamp), Format: "openai-responses",
+		BaseURL: srv.URL, Model: "pending-model", Streaming: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	poolEnabled := m.LLMPoolEnabled()
+	if err := m.SetLLMPoolEnabled(false); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.SetLLMPoolEnabled(poolEnabled) }()
+	priorOn, priorBackend, priorBrave, priorTavily, priorProxy := m.WebSearch()
+	if err := m.SetWebSearch(true, "ddgs", nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.SetWebSearch(priorOn, priorBackend, &priorBrave, &priorTavily, &priorProxy) }()
+	if err := m.pg.SetActiveProfile(appliedID); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{m: m, llmHealth: newLLMHealthRegistry(m.pg)}
+	cfg, ok := s.loadLLMConfig()
+	if !ok {
+		t.Fatal("applied profile unavailable")
+	}
+	if err := s.applyLLM(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.pg.SetActiveProfile(keylessID); err != nil {
+		t.Fatal(err)
+	}
+	s.reapplyActiveProfile()
+	chatRequest := func(sessionID string) map[string]any {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_, _ = s.chatAgentRef().Chat(ctx, "settings-test-agent", sessionID, "hello", 1, 0, true, nil)
+		select {
+		case body := <-requests:
+			return body
+		case <-ctx.Done():
+			t.Fatal("chat did not send provider request")
+			return nil
+		}
+	}
+	hasSearch := func(body map[string]any) bool {
+		tools, _ := body["tools"].([]any)
+		for _, raw := range tools {
+			tool, _ := raw.(map[string]any)
+			if tool["name"] == "web_search" {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasSearch(chatRequest("search-before")) {
+		t.Fatal("web search missing before settings change")
+	}
+	recorder := httptest.NewRecorder()
+	s.putSettings(recorder, httptest.NewRequest(http.MethodPut, "/api/settings", bytes.NewBufferString(`{"web_search_enabled":false}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("settings update: %d %s", recorder.Code, recorder.Body.String())
+	}
+	if s.llmProfileID != appliedID || s.llmCfg.Model != "settings-model" {
+		t.Fatalf("settings rebuild changed applied profile: id=%d model=%s", s.llmProfileID, s.llmCfg.Model)
+	}
+	if hasSearch(chatRequest("search-after")) {
+		t.Fatal("web search remains enabled after settings change")
+	}
 }
 
 func TestGlobalAutoEffortDoesNotAttributeOldConfigToNewActiveProfile(t *testing.T) {
