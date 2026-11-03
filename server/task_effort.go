@@ -260,7 +260,7 @@ func (s *Server) resolveGlobalProviderForEffort(effort string, withFailover bool
 		return s.globalProvider()
 	}
 	s.cfgMu.Lock()
-	on, baseCfg, name := s.llmOn, s.llmCfg, s.llmProf
+	on, baseCfg, name, appliedProfileID := s.llmOn, s.llmCfg, s.llmProf, s.llmProfileID
 	if !on {
 		s.cfgMu.Unlock()
 		return nil, agent.Config{}, false
@@ -278,16 +278,16 @@ func (s *Server) resolveGlobalProviderForEffort(effort string, withFailover bool
 	s.cfgMu.Unlock()
 	var prov llm.Provider
 	var cfg agent.Config
-	var activeID int64
-	if s.m != nil && s.m.pg != nil {
-		if p, err := s.m.pg.ActiveProfile(); err == nil && p != nil {
-			if s.profileConfigMatches(p.ID, baseCfg) {
-				prov, cfg, _ = s.providerForProfileEffort(p.ID, effort)
-				if prov != nil && cfg == resolvedEffortConfig(baseCfg, effort) {
-					activeID = p.ID
-				} else {
-					prov = nil
+	var poolHeadID int64
+	if s.m != nil && s.m.pg != nil && appliedProfileID != 0 {
+		if s.profileConfigMatches(appliedProfileID, baseCfg) {
+			prov, cfg, _ = s.providerForProfileEffort(appliedProfileID, effort)
+			if prov != nil && cfg == resolvedEffortConfig(baseCfg, effort) {
+				if active, err := s.m.pg.ActiveProfile(); err == nil && active != nil && active.ID == appliedProfileID {
+					poolHeadID = appliedProfileID
 				}
+			} else {
+				prov = nil
 			}
 		}
 	}
@@ -307,8 +307,8 @@ func (s *Server) resolveGlobalProviderForEffort(effort string, withFailover bool
 			return nil, agent.Config{}, false
 		}
 	}
-	if withFailover && activeID != 0 {
-		prov = s.poolForActiveEffort(activeID, prov, cfg, effort)
+	if withFailover && poolHeadID != 0 {
+		prov = s.poolForActiveEffort(poolHeadID, prov, cfg, effort)
 	}
 	s.provCacheMu.Lock()
 	if generation != s.provCacheGen {

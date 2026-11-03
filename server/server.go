@@ -54,11 +54,12 @@ type Server struct {
 	chatAgent *agent.ChatAgent // conversational runner for the chat page; nil w/o LLM
 	// llmProv is the fully-decorated global provider (recorder + failover chain)
 	// installed by applyLLM. Task routers use it after an explicit chain is cleared.
-	llmProv   llm.Provider
-	llmDirect llm.Provider // concrete global provider, before any failover pool
-	llmCfg    agent.Config // current LLM config (key not exposed)
-	llmOn     bool
-	llmProf   string // active LLM profile name (for llmrec tagging)
+	llmProv      llm.Provider
+	llmDirect    llm.Provider // concrete global provider, before any failover pool
+	llmCfg       agent.Config // current LLM config (key not exposed)
+	llmProfileID int64
+	llmOn        bool
+	llmProf      string // active LLM profile name (for llmrec tagging)
 
 	// chatBusy guards the per-task main-agent run: the chat handler launches the
 	// agent on the server's background ctx (not the request ctx) and returns
@@ -432,10 +433,14 @@ func (s *Server) profileConfigMatches(id int64, cfg agent.Config) bool {
 func (s *Server) applyLLM(cfg agent.Config) error {
 	s.cfgMu.Lock()
 	var prov llm.Provider
+	var appliedProfileID int64
 	// A persisted active profile must use the same cached provider as task chains
 	// and Agent bindings, otherwise each path owns a separate rate limiter.
 	if active, _ := s.m.pg.ActiveProfile(); active != nil && s.profileConfigMatches(active.ID, cfg) {
 		prov, _, _ = s.providerForProfile(active.ID)
+		if prov != nil {
+			appliedProfileID = active.ID
+		}
 	}
 	if prov == nil {
 		s.resetEnvironmentEffortProviders()
@@ -472,9 +477,10 @@ func (s *Server) applyLLM(cfg agent.Config) error {
 	s.chatAgent.SetNonStreaming(nonStreamingResolver(cfg))
 	s.chatAgent.SetMaxTokens(maxTokensResolver(cfg))
 	s.chatAgent.SetNoaEnabled(s.m.NoaCompactionEnabled) // 实验功能:noa 上下文压缩(每 run 读)
-	configChanged := !s.llmOn || s.llmCfg != cfg
+	configChanged := !s.llmOn || s.llmCfg != cfg || s.llmProfileID != appliedProfileID
 	s.llmProv = prov
 	s.llmCfg = cfg
+	s.llmProfileID = appliedProfileID
 	s.llmOn = true
 	if configChanged {
 		s.resetGlobalAutoProvider()
@@ -595,7 +601,7 @@ func (s *Server) chatAgentForProfile(id int64) *agent.ChatAgent {
 }
 
 // invalidateProfileAgents drops the per-profile ChatAgent + provider caches so a profile
-// save/activate/delete — or an agent's binding change — rebuilds pinned tasks' agents
+// save/delete — or an agent's binding change — rebuilds pinned tasks' agents
 // (and re-resolves each agent's bound model) on their next round.
 func (s *Server) invalidateProfileAgents() {
 	s.profMu.Lock()
@@ -608,6 +614,13 @@ func (s *Server) invalidateProfileAgents() {
 	s.provShared = map[int64]*profileEffortRouter{}
 	s.globalByEffort = map[string]*provEntry{}
 	s.provCacheMu.Unlock()
+	s.invalidateTaskAgents()
+}
+
+func (s *Server) invalidateProfileAgentInstances() {
+	s.profMu.Lock()
+	s.profChatAgents = map[int64]*agent.ChatAgent{}
+	s.profMu.Unlock()
 	s.invalidateTaskAgents()
 }
 

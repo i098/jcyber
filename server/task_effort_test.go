@@ -203,7 +203,7 @@ func TestGlobalAutoEffortDoesNotAttributeOldConfigToNewActiveProfile(t *testing.
 	stamp := time.Now().UnixNano()
 	oldID, err := m.pg.SaveProfile(&db.LLMProfile{
 		Name: fmt.Sprintf("effort-old-active-%d", stamp), Format: "openai-responses",
-		BaseURL: srv.URL, Model: "old-model", APIKey: "test-key", ReasoningEffort: "high",
+		BaseURL: srv.URL, Model: "old-model", APIKey: "test-key", ReasoningEffort: "high", RatePerMinute: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -243,11 +243,24 @@ func TestGlobalAutoEffortDoesNotAttributeOldConfigToNewActiveProfile(t *testing.
 	if err := m.pg.SetActiveProfile(newID); err != nil {
 		t.Fatal(err)
 	}
+	s.resetGlobalAutoProvider()
+	s.invalidateProfileAgentInstances()
 	provider, autoCfg, ok := s.globalProviderForEffort(ThinkingEffortAuto)
 	if !ok || autoCfg.Model != "old-model" {
 		t.Fatalf("auto config = %+v, available = %v; want old applied model", autoCfg, ok)
 	}
 	assertEffortWire(t, effortWireRequest(t, provider, requests), "old-model", ThinkingEffortAuto)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	_, _, _, err = s.llmDirect.Complete(ctx, llm.CompletionRequest{})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("applied profile's limiter did not include auto request: %v", err)
+	}
+	select {
+	case request := <-requests:
+		t.Fatalf("applied profile sent a second request before rate limit: %v", request)
+	default:
+	}
 	if state, recorded := s.llmHealth.Snapshot()[newID]; recorded {
 		t.Fatalf("new active profile got old provider's failure: %+v", state)
 	}

@@ -23,10 +23,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"pta/agent"
-	"pta/db"
 	"normasdk/llm"
 	"normasdk/skill"
+	"pta/agent"
+	"pta/db"
 )
 
 // validSkillName checks the agentskills.io name constraints, widened so a skill can
@@ -1933,8 +1933,9 @@ func (s *Server) pgActivateProfile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.invalidateProfileAgents() // active change may affect pinned-task fallbacks
-	s.reapplyActiveProfile()    // switch the running engine to the newly activated profile
+	s.resetGlobalAutoProvider()
+	s.invalidateProfileAgentInstances() // active change may affect pinned-task fallbacks
+	s.reapplyActiveProfile()            // switch the running engine to the newly activated profile
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
