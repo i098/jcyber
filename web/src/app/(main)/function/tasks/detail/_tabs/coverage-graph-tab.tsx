@@ -707,7 +707,8 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
             </>
           )}
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-3 rounded-full border border-muted-foreground border-dashed bg-background" /> Out of scope
+            <span className="size-3 rounded-full border border-muted-foreground border-dashed bg-background" /> Out of
+            scope
           </span>
         </div>
         <p className="border-border/60 border-t pt-2 text-muted-foreground/80 leading-relaxed">

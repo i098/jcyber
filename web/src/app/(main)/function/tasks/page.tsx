@@ -3251,7 +3251,9 @@ function CreateTaskSheet({
       >
         <SheetHeader className="border-b p-6">
           <SheetTitle>New Task</SheetTitle>
-          <SheetDescription>Include the test target in the Name or Goal. Description adds optional context.</SheetDescription>
+          <SheetDescription>
+            Include the test target in the Name or Goal. Description adds optional context.
+          </SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto p-6">
@@ -3380,10 +3382,7 @@ function CreateTaskSheet({
             </Field>
             <Field>
               <FieldLabel htmlFor="thinking-effort">Thinking Effort</FieldLabel>
-              <Select
-                value={thinkingEffort}
-                onValueChange={(value) => setThinkingEffort(value as "auto" | "max")}
-              >
+              <Select value={thinkingEffort} onValueChange={(value) => setThinkingEffort(value as "auto" | "max")}>
                 <SelectTrigger id="thinking-effort" className="w-full sm:w-64">
                   <SelectValue />
                 </SelectTrigger>
@@ -3463,10 +3462,10 @@ function CreateTaskSheet({
                     Dispatch the first intent directly (name + description + goal)
                   </label>
                   <p className="text-muted-foreground text-xs">
-                    When enabled, dispatch "name + description + goal" as an intent at creation so the worker starts without
-                    waiting for initial planning. The planner assesses and supplements the result afterward. Recommended
-                    for scenarios such as CTFs often solved in one work item; disable for the standard plan-then-execute
-                    flow.
+                    When enabled, dispatch "name + description + goal" as an intent at creation so the worker starts
+                    without waiting for initial planning. The planner assesses and supplements the result afterward.
+                    Recommended for scenarios such as CTFs often solved in one work item; disable for the standard
+                    plan-then-execute flow.
                   </p>
                 </div>
                 <div className="grid gap-2">

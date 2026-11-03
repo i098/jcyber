@@ -1,7 +1,6 @@
+import { observeGraphTheme, readGraphTheme } from "./graph-theme.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-
-import { observeGraphTheme, readGraphTheme } from "./graph-theme.ts";
 
 test("graph colors follow root theme changes and release their observer", (t) => {
   let dark = false;

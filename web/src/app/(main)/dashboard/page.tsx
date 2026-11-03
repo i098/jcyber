@@ -253,12 +253,18 @@ export default function DashboardPage() {
   React.useEffect(() => {
     let alive = true;
     const load = () => {
-      void api.usageStats(365).then((usage) => {
-        if (alive) setUsageStats(usage);
-      }).catch(() => {});
-      void api.llmProfiles().then((profiles) => {
-        if (alive) setLLMProfiles(profiles);
-      }).catch(() => {});
+      void api
+        .usageStats(365)
+        .then((usage) => {
+          if (alive) setUsageStats(usage);
+        })
+        .catch(() => {});
+      void api
+        .llmProfiles()
+        .then((profiles) => {
+          if (alive) setLLMProfiles(profiles);
+        })
+        .catch(() => {});
     };
     void load();
     const t = setInterval(load, 15000);

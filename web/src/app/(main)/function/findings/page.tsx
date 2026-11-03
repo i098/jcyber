@@ -1053,7 +1053,8 @@ export default function FindingsPage() {
                                 : `Task #${group.task_id}`}
                           </CardTitle>
                           <CardDescription className="truncate" title={group.task_description}>
-                            {group.task_description || (group.task_id === null ? "Source Task unavailable" : "No description")}
+                            {group.task_description ||
+                              (group.task_id === null ? "Source Task unavailable" : "No description")}
                           </CardDescription>
                         </div>
                       </button>
