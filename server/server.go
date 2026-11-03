@@ -1671,7 +1671,7 @@ func (s *Server) seed(t *Task, text string) {
 			rootID, _ = as.UpsertRootDomain(db.UpsertRootDomainReq{Domain: host, TaskID: taskID})
 		}
 		if rootID > 0 {
-			_ = as.SetTaskAssetSource(taskID, rootID, "task", "Initialized from task name, description, or goal", nil)
+			_ = as.SetTaskAssetSource(taskID, rootID, "task", "Initialized from task name", nil)
 		}
 	}
 	// anchor the seeded assets to this task's begin root as lineage/provenance
@@ -1693,7 +1693,7 @@ func (s *Server) seed(t *Task, text string) {
 // origin fact (RelDerivedFrom) so it still traces back to a fact node. Best-effort —
 // a failure just falls back to the normal planner-driven flow.
 func (s *Server) seedFirstIntent(t *Task) {
-	summary := fmt.Sprintf("Complete task goal: %s (task: %s)", t.Goal, taskExecutionContext(t))
+	summary := fmt.Sprintf("Complete task goal: %s (task: %s)", t.Goal, strings.TrimSpace(taskCreationName(t)+" "+t.Description))
 	id, err := t.Store.AddIntent(map[string]any{"summary": summary}, 8, nil, "seed")
 	if err != nil {
 		log.Printf("[seed] task %s: failed to issue seed intent: %v", t.ID, err)

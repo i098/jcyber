@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sort"
@@ -17,51 +18,25 @@ type goalSpec struct {
 	VulnClass string
 }
 
-func taskExecutionContext(t *Task) string {
-	name := strings.TrimSpace(t.lifecycleSnapshot().Name)
-	description := strings.TrimSpace(t.Description)
-	if name == "" || name == description {
-		return description
-	}
-	return strings.TrimSpace(name + " " + description)
-}
-
-func taskSeedText(t *Task) string {
-	name := strings.TrimSpace(t.lifecycleSnapshot().Name)
-	if _, _, _, ok := parseTarget(name); ok {
-		return name
-	}
-	return taskExecutionContext(t) + " " + t.Goal
-}
-
-func taskSeededTarget(t *Task, as *db.AssetStore) string {
-	if as == nil || t.Store == nil {
+func taskCreationName(t *Task) string {
+	if t.Store == nil {
 		return ""
 	}
 	origin, err := t.Store.OriginFactID()
 	if err != nil || origin == 0 {
 		return ""
 	}
-	anchors, err := t.Store.NodeAssets([]int64{origin})
-	if err != nil {
+	node, err := t.Store.GetNode(origin)
+	if err != nil || node == nil {
 		return ""
 	}
-	assets, err := as.GetByIDs(anchors[origin])
-	if err != nil {
+	var payload struct {
+		CreationName string `json:"creation_name"`
+	}
+	if json.Unmarshal(node.Payload, &payload) != nil {
 		return ""
 	}
-	for _, asset := range assets {
-		if asset.URL != "" {
-			return asset.URL
-		}
-		if asset.Domain != "" {
-			return asset.Domain
-		}
-		if asset.IP != "" {
-			return asset.IP
-		}
-	}
-	return ""
+	return payload.CreationName
 }
 
 // launchTask runs the shared post-creation sequence for a task created via ANY
@@ -76,7 +51,7 @@ func (s *Server) launchTask(t *Task, seedFirstIntent bool) {
 	if !s.engine.beginTaskOperation(t.ID) {
 		return
 	}
-	s.seed(t, taskSeedText(t))
+	s.seed(t, taskCreationName(t))
 	if seedFirstIntent {
 		s.seedFirstIntent(t)
 	}
@@ -432,8 +407,8 @@ func (s *Server) createGoals(ctx context.Context, t *Task, emit func(db.Activity
 	s.engine.BeginLLMCall(t.ID)
 	goalRuntime := s.agentsForTask(t).runtime
 	description := t.Description
-	if target := taskSeededTarget(t, as); target != "" {
-		description = "Seeded target: " + target + "\n" + description
+	if name := taskCreationName(t); name != "" {
+		description = "Target from task creation: " + name + "\n" + description
 	}
 	decomposed := agent.DecomposeGoalsWithProvider(ctx, goalRuntime, s.m.dir, t.Goal, description, as, t.Store, taskID, goalRuntime.nonStreaming(), goalRuntime.maxTokens(), emit)
 	s.engine.EndLLMCall(t.ID)

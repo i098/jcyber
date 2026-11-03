@@ -281,9 +281,13 @@ func (s *Server) resolveGlobalProviderForEffort(effort string, withFailover bool
 	var activeID int64
 	if s.m != nil && s.m.pg != nil {
 		if p, err := s.m.pg.ActiveProfile(); err == nil && p != nil {
-			activeID = p.ID
 			if s.profileConfigMatches(p.ID, baseCfg) {
 				prov, cfg, _ = s.providerForProfileEffort(p.ID, effort)
+				if prov != nil && cfg == resolvedEffortConfig(baseCfg, effort) {
+					activeID = p.ID
+				} else {
+					prov = nil
+				}
 			}
 		}
 	}

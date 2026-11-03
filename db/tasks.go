@@ -186,9 +186,10 @@ func (d *DB) CreateTaskWithOptions(description, goal string, opts TaskCreateOpti
 	// is global and shared, not isolated per task). Being a fact (not a special 'begin' kind) lets every
 	// intent uniformly connect to a fact node, including the first ones.
 	originPayload, _ := json.Marshal(map[string]any{
-		"summary":     "Task starting point: " + description + "; goal: " + goal,
-		"description": description,
-		"goal":        goal,
+		"summary":       "Task starting point: " + description + "; goal: " + goal,
+		"creation_name": opts.Name,
+		"description":   description,
+		"goal":          goal,
 	})
 	if _, err := tx.Exec(`
 INSERT INTO exploration_nodes(exploration_id, kind, payload, priority, state, origin)

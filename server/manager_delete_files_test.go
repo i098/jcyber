@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	pgdb "pta/db"
 	"pta/traffic"
@@ -46,32 +47,66 @@ func TestSeedAssociatesTargetAssetWithTask(t *testing.T) {
 	}
 }
 
-func TestSeededTargetSurvivesTaskRename(t *testing.T) {
+func TestCreationTargetSurvivesTaskRename(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) - skipping", err)
 	}
 	defer m.Close()
-	task, err := m.CreateTask("Use https://docs.vendor.net as reference", "Find exposed admin routes", nil, 0, 0)
+	host := fmt.Sprintf("seed-%d.example.test", time.Now().UnixNano())
+	creationName := host + ":8080 audit"
+	task, err := m.CreateTaskWithOptions("Use https://docs.vendor.net as reference", "Find exposed admin routes", pgdb.TaskCreateOptions{Name: creationName})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _, _ = m.DeleteTask(task.ID, DeleteTaskOptions{DeleteAssets: true}) }()
-	host := fmt.Sprintf("seed-%s.example.test", task.ID)
-	name := host + " scan"
-	if _, err := m.UpdateTaskMetadata(task.ID, pgdb.TaskPatch{Name: &name}); err != nil {
-		t.Fatal(err)
-	}
 	s := &Server{m: m}
-	s.seed(task, taskSeedText(task))
-	name = "other.example.test"
+	name := "other.example.test"
 	if _, err := m.UpdateTaskMetadata(task.ID, pgdb.TaskPatch{Name: &name}); err != nil {
 		t.Fatal(err)
 	}
-	seeded := taskSeededTarget(task, m.Assets())
-	_, gotHost, _, ok := parseTarget(seeded)
-	if !ok || gotHost != host {
-		t.Fatalf("seeded target after rename = %q, want host %q", seeded, host)
+	if got := taskCreationName(task); got != creationName {
+		t.Fatalf("creation name after rename = %q, want %q", got, creationName)
+	}
+	s.seed(task, taskCreationName(task))
+	assets, err := m.Assets().QueryByTask(mustTaskID(t, task.ID), "", 20, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantURL := "http://" + host + ":8080"
+	found := false
+	for _, asset := range assets {
+		if asset.URL == wantURL {
+			found = true
+		}
+		if asset.Domain == "docs.vendor.net" || strings.Contains(asset.URL, "docs.vendor.net") {
+			t.Fatalf("reference URL seeded as target: %+v", asset)
+		}
+	}
+	if !found {
+		t.Fatalf("seeded assets after rename = %+v, want %q", assets, wantURL)
+	}
+}
+
+func TestUnparseableNameDoesNotSeedReferenceURL(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v) - skipping", err)
+	}
+	defer m.Close()
+	task, err := m.CreateTaskWithOptions("Use https://docs.vendor.net as reference", "Find exposed admin routes", pgdb.TaskCreateOptions{Name: "internal-api scan"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = m.DeleteTask(task.ID, DeleteTaskOptions{DeleteAssets: true}) }()
+	s := &Server{m: m}
+	s.seed(task, taskCreationName(task))
+	assets, err := m.Assets().QueryByTask(mustTaskID(t, task.ID), "", 20, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assets) != 0 {
+		t.Fatalf("unparseable name seeded reference URL: %+v", assets)
 	}
 }
 

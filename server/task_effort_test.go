@@ -180,6 +180,79 @@ func TestGlobalAutoEffortUsesAppliedConfig(t *testing.T) {
 	}
 }
 
+func TestGlobalAutoEffortDoesNotAttributeOldConfigToNewActiveProfile(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v)", err)
+	}
+	defer m.Close()
+	requests := make(chan map[string]any, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var data map[string]any
+		if json.Unmarshal(body, &data) == nil {
+			requests <- data
+		}
+		w.WriteHeader(http.StatusPaymentRequired)
+	}))
+	defer srv.Close()
+	previous, err := m.pg.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().UnixNano()
+	oldID, err := m.pg.SaveProfile(&db.LLMProfile{
+		Name: fmt.Sprintf("effort-old-active-%d", stamp), Format: "openai-responses",
+		BaseURL: srv.URL, Model: "old-model", APIKey: "test-key", ReasoningEffort: "high",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newID, err := m.pg.SaveProfile(&db.LLMProfile{
+		Name: fmt.Sprintf("effort-new-active-%d", stamp), Format: "openai-responses",
+		BaseURL: srv.URL, Model: "new-model", APIKey: "test-key", ReasoningEffort: "high",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if previous != nil {
+			_ = m.pg.SetActiveProfile(previous.ID)
+		} else {
+			_, _ = m.pg.Exec(`UPDATE llm_profiles SET is_default=false WHERE id=$1`, newID)
+		}
+		_ = m.pg.DeleteProfile(oldID)
+		_ = m.pg.DeleteProfile(newID)
+	}()
+	if err := m.pg.SetActiveProfile(oldID); err != nil {
+		t.Fatal(err)
+	}
+	poolEnabled := m.LLMPoolEnabled()
+	if err := m.SetLLMPoolEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.SetLLMPoolEnabled(poolEnabled) }()
+	s := &Server{m: m, llmHealth: newLLMHealthRegistry(m.pg)}
+	cfg, ok := s.loadLLMConfig()
+	if !ok {
+		t.Fatal("old active profile unavailable")
+	}
+	if err := s.applyLLM(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.pg.SetActiveProfile(newID); err != nil {
+		t.Fatal(err)
+	}
+	provider, autoCfg, ok := s.globalProviderForEffort(ThinkingEffortAuto)
+	if !ok || autoCfg.Model != "old-model" {
+		t.Fatalf("auto config = %+v, available = %v; want old applied model", autoCfg, ok)
+	}
+	assertEffortWire(t, effortWireRequest(t, provider, requests), "old-model", ThinkingEffortAuto)
+	if state, recorded := s.llmHealth.Snapshot()[newID]; recorded {
+		t.Fatalf("new active profile got old provider's failure: %+v", state)
+	}
+}
+
 func TestApplyLLMInvalidatesStaleGlobalAutoProvider(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
