@@ -51,7 +51,11 @@ func (s *Server) launchTask(t *Task, seedFirstIntent bool) {
 	if !s.engine.beginTaskOperation(t.ID) {
 		return
 	}
-	s.seed(t, taskCreationName(t))
+	seedText := taskCreationName(t)
+	if _, _, _, ok := parseTarget(seedText); !ok {
+		seedText = t.Goal
+	}
+	s.seed(t, seedText)
 	if seedFirstIntent {
 		s.seedFirstIntent(t)
 	}

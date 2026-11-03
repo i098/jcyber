@@ -1836,16 +1836,6 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"id": id})
 		return
 	}
-	s.cfgMu.Lock()
-	appliedID := s.llmProfileID
-	s.cfgMu.Unlock()
-	if appliedID == id {
-		active, err := pg.ActiveProfile()
-		if err != nil || active == nil || active.ID != id {
-			writeJSON(w, 200, map[string]any{"id": id})
-			return
-		}
-	}
 	rebuildTaskAgents = true
 	// Editing a profile rebuilds any task pinned to it on its next round. Reapply
 	// the active profile too: the global fallback and explicit task chains must
@@ -1897,10 +1887,11 @@ func (s *Server) pgSaveLLMRetryPolicy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	rebuildTaskAgents = true
 	s.applyRetryPolicy()
-	s.invalidateProfileCaches()
-	s.reapplyActiveProfileWithoutTaskAgentInvalidation()
+	rebuildTaskAgents = s.refreshRetryPolicyProviders()
+	if s.reapplyActiveProfileWithoutTaskAgentInvalidation() {
+		rebuildTaskAgents = true
+	}
 	writeJSON(w, 200, pg.LLMRetryPolicy())
 }
 

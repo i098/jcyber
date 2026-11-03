@@ -400,16 +400,38 @@ func (s *Server) reapplyActiveProfile() {
 }
 
 func (s *Server) reapplyActiveProfileWithoutTaskAgentInvalidation() bool {
-	cfg, ok := s.loadLLMConfig()
-	if !ok {
+	active, err := s.m.pg.ActiveProfile()
+	if err != nil {
 		return false
 	}
-	if err := s.applyLLMWithoutTaskAgentInvalidation(cfg); err != nil {
-		log.Printf("[engine] reapply active profile failed: %v", err)
-		return false
+	s.cfgMu.Lock()
+	appliedID := s.llmProfileID
+	s.cfgMu.Unlock()
+	profiles := []*db.LLMProfile{}
+	if active != nil {
+		profiles = append(profiles, active)
 	}
-	log.Printf("[engine] LLM reapplied from active profile: %s / %s", cfg.Provider(), cfg.Model)
-	return true
+	if appliedID != 0 && (active == nil || active.ID != appliedID) {
+		if profile, err := s.m.pg.ProfileByID(appliedID); err == nil && profile != nil {
+			profiles = append(profiles, profile)
+		}
+	}
+	for _, profile := range profiles {
+		cfg, ok := s.loadProfileConfig(profile.ID)
+		if !ok {
+			continue
+		}
+		if err := s.applyLLMWithoutTaskAgentInvalidation(cfg); err != nil {
+			log.Printf("[engine] reapply profile %d failed: %v", profile.ID, err)
+			continue
+		}
+		s.cfgMu.Lock()
+		s.llmProf = profile.Name
+		s.cfgMu.Unlock()
+		log.Printf("[engine] LLM reapplied from profile %d: %s / %s", profile.ID, cfg.Provider(), cfg.Model)
+		return true
+	}
+	return false
 }
 
 // webSearchFor gates the global web-search opts (backend/key) by an agent's own
@@ -502,9 +524,14 @@ func (s *Server) applyLLMWithoutTaskAgentInvalidation(cfg agent.Config) error {
 	// A persisted active profile must use the same cached provider as task chains
 	// and Agent bindings, otherwise each path owns a separate rate limiter.
 	if active, _ := s.m.pg.ActiveProfile(); active != nil && s.profileConfigMatches(active.ID, cfg) {
-		prov, _, _ = s.providerForProfileEffortUnlocked(active.ID, "")
-		if prov != nil {
-			appliedProfileID = active.ID
+		appliedProfileID = active.ID
+	} else if s.llmProfileID != 0 && s.profileConfigMatches(s.llmProfileID, cfg) {
+		appliedProfileID = s.llmProfileID
+	}
+	if appliedProfileID != 0 {
+		prov, _, _ = s.providerForProfileEffortUnlocked(appliedProfileID, "")
+		if prov == nil {
+			appliedProfileID = 0
 		}
 	}
 	if prov == nil {
@@ -513,7 +540,7 @@ func (s *Server) applyLLMWithoutTaskAgentInvalidation(cfg agent.Config) error {
 		} else {
 			s.resetEnvironmentEffortProviders()
 			var ok bool
-			prov, _, ok = s.providerForConfigEffort(0, cfg, s.llmProf, "")
+			prov, _, ok = s.providerForEffortUnlocked(0, "", &cfg, s.llmProf)
 			if !ok {
 				s.cfgMu.Unlock()
 				return fmt.Errorf("provider init failed for %s / %s", cfg.Provider(), cfg.Model)
@@ -700,31 +727,6 @@ func (s *Server) invalidateProfileProviderLocked(id int64, dropLimiter bool) {
 	}
 	if dropLimiter {
 		delete(s.provShared, id)
-	}
-	s.globalByEffort = map[string]*provEntry{}
-	s.provCacheMu.Unlock()
-}
-
-func (s *Server) invalidateProfileCaches() {
-	s.invalidateProfileChatAgents()
-	s.cfgMu.Lock()
-	preserveEnvironment := s.llmOn && s.llmProfileID == 0
-	s.cfgMu.Unlock()
-	s.provCacheMu.Lock()
-	if preserveEnvironment {
-		for id := range s.provByProfile {
-			if id != 0 {
-				delete(s.provByProfile, id)
-			}
-		}
-		for key := range s.provByEffort {
-			if key.id != 0 {
-				delete(s.provByEffort, key)
-			}
-		}
-	} else {
-		s.provByProfile = map[int64]*provEntry{}
-		s.provByEffort = map[effortProfileKey]*provEntry{}
 	}
 	s.globalByEffort = map[string]*provEntry{}
 	s.provCacheMu.Unlock()
@@ -1808,7 +1810,7 @@ func (s *Server) seed(t *Task, text string) {
 			rootID, _ = as.UpsertRootDomain(db.UpsertRootDomainReq{Domain: host, TaskID: taskID})
 		}
 		if rootID > 0 {
-			_ = as.SetTaskAssetSource(taskID, rootID, "task", "Initialized from task name", nil)
+			_ = as.SetTaskAssetSource(taskID, rootID, "task", "Initialized from task target", nil)
 		}
 	}
 	// anchor the seeded assets to this task's begin root as lineage/provenance

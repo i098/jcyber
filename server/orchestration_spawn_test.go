@@ -63,6 +63,54 @@ func TestSpawnTaskPreservesNamedTarget(t *testing.T) {
 	t.Fatalf("seeded assets = %+v, want %q", assets, wantURL)
 }
 
+func TestSpawnTaskSeedsGoalTargetWithoutDescriptionReference(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v)", err)
+	}
+	defer m.Close()
+	s := newAdmissionTestServer(m, func(*Task) bool { return false })
+	host := fmt.Sprintf("goal-%d.example.test", time.Now().UnixNano())
+	name := fmt.Sprintf("Domain dig %d", time.Now().UnixNano())
+	in, err := json.Marshal(map[string]string{
+		"name": name, "description": "Use https://docs.vendor.net as reference", "goal": "Map http://" + host,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.toolSpawnTask().Call(context.Background(), in, nil)
+	if err != nil || result.IsError {
+		t.Fatalf("spawn_task: err=%v result=%+v", err, result)
+	}
+	var spawned *Task
+	for _, task := range m.List() {
+		if task.Name == name {
+			spawned = task
+			break
+		}
+	}
+	if spawned == nil {
+		t.Fatalf("spawn_task did not create task named %q", name)
+	}
+	defer func() { _, _ = m.DeleteTask(spawned.ID, DeleteTaskOptions{DeleteAssets: true}) }()
+	assets, err := m.Assets().QueryByTask(mustTaskID(t, spawned.ID), "", 20, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	goalFound := false
+	for _, asset := range assets {
+		if asset.URL == "http://"+host {
+			goalFound = true
+		}
+		if asset.URL == "https://docs.vendor.net" {
+			t.Fatalf("description reference seeded as target: %+v", assets)
+		}
+	}
+	if !goalFound {
+		t.Fatalf("goal target missing from seeded assets: %+v", assets)
+	}
+}
+
 func TestSpawnSchemaRefreshPreservesSavedEdits(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {

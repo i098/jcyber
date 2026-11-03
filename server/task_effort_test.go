@@ -338,37 +338,6 @@ func TestUnchangedActiveProfileKeepsLimiterAfterOtherProfileSave(t *testing.T) {
 	}
 }
 
-func TestRetryPolicyInvalidationKeepsProfileLimiter(t *testing.T) {
-	for _, environmentApplied := range []bool{false, true} {
-		t.Run(fmt.Sprint(environmentApplied), func(t *testing.T) {
-			const profileID = 7
-			s := &Server{llmOn: environmentApplied, provShared: map[int64]*profileEffortRouter{}}
-			provider := func(effort string, underlying llm.Provider) llm.Provider {
-				shared := s.provShared[profileID]
-				if shared == nil {
-					shared = &profileEffortRouter{providers: map[string]llm.Provider{}}
-					shared.limited = llm.RateLimited(shared, llm.RateLimit{PerMinute: 1})
-					s.provShared[profileID] = shared
-				}
-				shared.providers[effort] = underlying
-				return &profileEffortView{shared: shared.limited, effort: effort}
-			}
-			old := &scriptedLLMProvider{}
-			if _, _, _, err := provider("", old).Complete(context.Background(), llm.CompletionRequest{}); err != nil || old.calls != 1 {
-				t.Fatalf("first request: calls = %d, error = %v", old.calls, err)
-			}
-			s.invalidateProfileCaches()
-			fresh := &scriptedLLMProvider{}
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
-			defer cancel()
-			_, _, _, err := provider(ThinkingEffortAuto, fresh).Complete(ctx, llm.CompletionRequest{})
-			if !errors.Is(err, context.DeadlineExceeded) || fresh.calls != 0 {
-				t.Fatalf("second request bypassed shared limiter: calls = %d, error = %v", fresh.calls, err)
-			}
-		})
-	}
-}
-
 func TestInvalidActiveProfileSaveKeepsRunningLimiter(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
@@ -475,6 +444,36 @@ func TestInvalidActiveProfileSaveKeepsRunningLimiter(t *testing.T) {
 	}
 	s.resetGlobalAutoProvider()
 	checkAutoBlocked("invalid draft")
+	previousPolicy := m.pg.LLMRetryPolicy()
+	defer func() { _ = m.pg.SetLLMRetryPolicy(previousPolicy) }()
+	fallbackID, err := m.pg.SaveProfile(&db.LLMProfile{
+		Name: fmt.Sprintf("retry-fallback-%d", time.Now().UnixNano()), Format: "openai-responses",
+		BaseURL: srv.URL, Model: "fallback-model", APIKey: "test-key", Streaming: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.pg.DeleteProfile(fallbackID) }()
+	if _, _, ok := s.providerForProfileEffort(fallbackID, ""); !ok {
+		t.Fatal("fallback profile unavailable")
+	}
+	policy, err := json.Marshal(db.LLMRetryPolicy{Connect: db.RetryRule{Attempts: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder = httptest.NewRecorder()
+	s.pgSaveLLMRetryPolicy(recorder, httptest.NewRequest(http.MethodPost, "/api/llm/retry-policy", bytes.NewReader(policy)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("retry policy save: %d %s", recorder.Code, recorder.Body.String())
+	}
+	if _, _, ok := s.providerForProfileEffort(id, ""); !ok {
+		t.Fatal("running profile unavailable after retry policy save")
+	}
+	_, fallbackCfg, ok := s.providerForProfileEffort(fallbackID, "")
+	if !ok || fallbackCfg.Retry.ConnectAttempts != 1 {
+		t.Fatalf("fallback profile retry config = %+v, available = %v", fallbackCfg.Retry, ok)
+	}
+	checkAutoBlocked("retry policy")
 }
 
 func TestGlobalAutoEffortDoesNotAttributeOldConfigToNewActiveProfile(t *testing.T) {
@@ -577,6 +576,23 @@ func TestGlobalAutoEffortDoesNotAttributeOldConfigToNewActiveProfile(t *testing.
 	}
 	if state, recorded := s.llmHealth.Snapshot()[newID]; recorded {
 		t.Fatalf("new active profile got old provider's failure: %+v", state)
+	}
+	updated, err := json.Marshal(map[string]any{
+		"id": oldID, "name": fmt.Sprintf("effort-old-active-%d", stamp), "format": "openai-responses",
+		"base_url": srv.URL, "model": "edited-model", "rate_per_minute": 1,
+		"reasoning_effort": "high", "streaming": false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	s.pgSaveProfile(recorder, httptest.NewRequest(http.MethodPost, "/api/llm/profiles", bytes.NewReader(updated)))
+	if recorder.Code != http.StatusOK || s.llmCfg.Model != "edited-model" || s.llmProfileID != oldID {
+		t.Fatalf("applied profile edit stayed stale: status=%d config=%s profile=%d", recorder.Code, s.llmCfg.Model, s.llmProfileID)
+	}
+	_, boundCfg, ok := s.providerForProfileEffort(oldID, "")
+	if !ok || boundCfg.Model != "edited-model" {
+		t.Fatalf("bound profile edit stayed stale: config=%+v available=%v", boundCfg, ok)
 	}
 }
 
