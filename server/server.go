@@ -1320,11 +1320,12 @@ func (s *Server) setLLM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.invalidateProfileAgents()
-	if _, ok := s.loadLLMConfig(); !ok {
+	savedCfg, ok := s.loadLLMConfig()
+	if !ok {
 		writeErr(w, 500, "saved provider is unavailable")
 		return
 	}
-	if err := s.applyLLM(cfg); err != nil {
+	if err := s.applyLLM(savedCfg); err != nil {
 		writeErr(w, 400, "provider init failed: "+err.Error())
 		return
 	}

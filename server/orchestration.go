@@ -504,6 +504,7 @@ func (s *Server) seedOrchestrationTools() {
 		_ = s.m.PG().SeedTool(t.Name(), t.Description(), schema, autoAgents)
 	}
 	s.refreshBuiltinToolSchemas()
+	s.refreshSpawnTaskSchema()
 	s.seedAutoDefaultBindings()
 	s.seedPlannerDefaultBindings()
 	s.seedPlannerListAssetsBinding()
@@ -529,10 +530,12 @@ func (s *Server) seedOrchestrationTools() {
 // orchestration + platform tools into already-seeded rows ONCE per version flag —
 // SeedTool is first-insert-only, so a new param (e.g. spawn_task 的 llm_profile) never
 // reaches an old DB otherwise. Preserves each tool's agent binding + enabled flag.
-// Bump the flag whenever these tools' schemas/descriptions change in code.
 func (s *Server) refreshBuiltinToolSchemas() {
-	const flag = "tool_schema_refresh_v9_spawn_name"
+	const flag = "tool_schema_refresh_v7_list_facts_paging"
 	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
+		return
+	}
+	if v, _, _ := s.m.pg.GetSetting("tool_schema_refresh_v9_spawn_name"); v == "true" {
 		return
 	}
 	tools := append(s.orchestrationTools(), s.platformTools()...)
@@ -561,6 +564,26 @@ func (s *Server) refreshBuiltinToolSchemas() {
 	}
 	_ = s.m.pg.SetSetting(flag, "true")
 	log.Printf("[tools] Refreshed orchestration/platform tool schemas to code defaults (one-time)")
+}
+
+func (s *Server) refreshSpawnTaskSchema() {
+	const flag = "tool_schema_refresh_v10_spawn_name"
+	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
+		return
+	}
+	tool := s.toolSpawnTask()
+	schema, err := json.Marshal(tool.InputSchema())
+	if err != nil {
+		log.Printf("[tools] refresh spawn_task schema failed: %v", err)
+		return
+	}
+	if err := s.m.pg.RefreshToolDefaults(tool.Name(), tool.Description(), schema); err != nil {
+		log.Printf("[tools] refresh spawn_task schema failed: %v", err)
+		return
+	}
+	if err := s.m.pg.SetSetting(flag, "true"); err != nil {
+		log.Printf("[tools] record spawn_task schema refresh failed: %v", err)
+	}
 }
 
 // unbindGoalMetDefault removes goal_met's default "planner" binding ONCE (guarded by
