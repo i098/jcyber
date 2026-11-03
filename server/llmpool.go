@@ -2,12 +2,14 @@ package server
 
 import (
 	"log"
+	"os"
+	"strings"
 	"time"
 
+	"normasdk/llm"
 	"pta/agent"
 	"pta/db"
 	"pta/llmpool"
-	"normasdk/llm"
 )
 
 // LLM 轮询(故障转移)的服务端接线。设计见 docs/LLM轮询设计.md：
@@ -69,6 +71,19 @@ func (s *Server) poolMember(p *db.LLMProfile, rank int) *llmpool.Member {
 	}
 }
 
+// headRank returns the rank the chain head gets. Default RankActive, so the
+// globally active profile always leads. With JCYBER_LLM_ROUND_ROBIN set
+// (1/true/on) it returns the profile's own priority, letting equal-priority
+// profiles rotate per call inside llmpool — a real model rotation rather than
+// failover-only.
+func headRank(priority int) int {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("JCYBER_LLM_ROUND_ROBIN"))) {
+	case "1", "true", "on":
+		return priority
+	}
+	return llmpool.RankActive
+}
+
 // poolChain reads the failover chain from the DB. headID/headProv/headCfg describe
 // the member that must lead the chain — the globally active profile on the normal
 // path, or an explicitly bound one when bound-profile fallback is on. The head is
@@ -100,9 +115,13 @@ func (s *Server) poolChain(headID int64, headProv llm.Provider, headCfg agent.Co
 			return nil
 		}
 	}
+	// Round-robin mode: the head keeps its configured priority instead of the
+	// synthetic top rank, so profiles sharing a priority genuinely rotate per call
+	// (llmpool rotates within each equal-rank group) instead of only failing over
+	// on error. Unset keeps the old active-heads-the-chain failover behavior.
 	members := []*llmpool.Member{{
 		ID: head.ID, Name: head.Name, Model: head.Model, Format: head.Format,
-		Priority: head.Priority, Active: head.IsDefault, Rank: llmpool.RankActive,
+		Priority: head.Priority, Active: head.IsDefault, Rank: headRank(head.Priority),
 		WindowTokens: headCfg.CompactionWindow(), Prov: headProv,
 	}}
 	for _, p := range profs {
