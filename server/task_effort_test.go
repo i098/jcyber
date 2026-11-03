@@ -419,37 +419,62 @@ func TestInvalidActiveProfileSaveKeepsRunningLimiter(t *testing.T) {
 		t.Fatal("max effort unavailable")
 	}
 	assertEffortWire(t, effortWireRequest(t, maxProvider, requests), cfg.Model, cfg.ReasoningEffort)
+	checkAutoBlocked := func(stage string) {
+		t.Helper()
+		autoProvider, _, ok := s.globalProviderForEffort(ThinkingEffortAuto)
+		if !ok {
+			t.Fatalf("%s: auto effort unavailable", stage)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+		defer cancel()
+		_, _, _, err := autoProvider.Complete(ctx, llm.CompletionRequest{})
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("%s: auto effort bypassed running limiter: %v", stage, err)
+		}
+		select {
+		case request := <-requests:
+			t.Fatalf("%s: auto effort sent a second request before rate limit: %v", stage, request)
+		default:
+		}
+	}
+	profile.Name = "renamed-" + profile.Name
 	update, err := json.Marshal(map[string]any{
 		"id": id, "name": profile.Name, "format": profile.Format, "base_url": profile.BaseURL,
-		"model": profile.Model, "proxy": "://invalid", "rate_per_minute": 1, "streaming": true,
+		"model": profile.Model, "proxy": "", "rate_per_minute": 1, "streaming": true,
+		"thinking_type": profile.ThinkingType, "reasoning_effort": profile.ReasoningEffort,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	recorder := httptest.NewRecorder()
 	s.pgSaveProfile(recorder, httptest.NewRequest(http.MethodPost, "/api/llm/profiles", bytes.NewReader(update)))
-	if recorder.Code != http.StatusBadRequest {
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("profile rename: %d %s", recorder.Code, recorder.Body.String())
+	}
+	checkAutoBlocked("renamed profile")
+	update, err = json.Marshal(map[string]any{
+		"id": id, "name": profile.Name, "format": profile.Format, "base_url": profile.BaseURL,
+		"model": profile.Model, "proxy": "://invalid", "rate_per_minute": 1, "streaming": true,
+		"thinking_type": profile.ThinkingType, "reasoning_effort": profile.ReasoningEffort,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder = httptest.NewRecorder()
+	s.pgSaveProfile(recorder, httptest.NewRequest(http.MethodPost, "/api/llm/profiles", bytes.NewReader(update)))
+	if recorder.Code != http.StatusOK {
 		t.Fatalf("invalid profile save: %d %s", recorder.Code, recorder.Body.String())
 	}
 	saved, err := m.pg.ProfileByID(id)
-	if err != nil || saved == nil || saved.Proxy != "" {
-		t.Fatalf("invalid proxy persisted: profile = %+v, error = %v", saved, err)
+	if err != nil || saved == nil || saved.Proxy != "://invalid" {
+		t.Fatalf("draft proxy missing: profile = %+v, error = %v", saved, err)
 	}
-	autoProvider, _, ok := s.globalProviderForEffort(ThinkingEffortAuto)
-	if !ok {
-		t.Fatal("auto effort unavailable after failed save")
+	s.reapplyActiveProfile()
+	if s.llmCfg.Proxy != "" {
+		t.Fatalf("invalid proxy replaced running config: %q", s.llmCfg.Proxy)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
-	defer cancel()
-	_, _, _, err = autoProvider.Complete(ctx, llm.CompletionRequest{})
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("auto effort bypassed running limiter: %v", err)
-	}
-	select {
-	case request := <-requests:
-		t.Fatalf("auto effort sent a second request before rate limit: %v", request)
-	default:
-	}
+	s.resetGlobalAutoProvider()
+	checkAutoBlocked("invalid draft")
 }
 
 func TestGlobalAutoEffortDoesNotAttributeOldConfigToNewActiveProfile(t *testing.T) {
@@ -482,7 +507,16 @@ func TestGlobalAutoEffortDoesNotAttributeOldConfigToNewActiveProfile(t *testing.
 	}
 	newID, err := m.pg.SaveProfile(&db.LLMProfile{
 		Name: fmt.Sprintf("effort-new-active-%d", stamp), Format: "openai-responses",
-		BaseURL: srv.URL, Model: "new-model", APIKey: "test-key", ReasoningEffort: "high",
+		BaseURL: srv.URL, Model: "new-model", ReasoningEffort: "high",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallbackServer, fallbackRequests := effortWireServer(t)
+	defer fallbackServer.Close()
+	fallbackID, err := m.pg.SaveProfile(&db.LLMProfile{
+		Name: fmt.Sprintf("effort-fallback-%d", stamp), Format: "openai-responses",
+		BaseURL: fallbackServer.URL, Model: "fallback-model", APIKey: "test-key", Priority: 1000000,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -495,6 +529,7 @@ func TestGlobalAutoEffortDoesNotAttributeOldConfigToNewActiveProfile(t *testing.
 		}
 		_ = m.pg.DeleteProfile(oldID)
 		_ = m.pg.DeleteProfile(newID)
+		_ = m.pg.DeleteProfile(fallbackID)
 	}()
 	if err := m.pg.SetActiveProfile(oldID); err != nil {
 		t.Fatal(err)
@@ -523,6 +558,12 @@ func TestGlobalAutoEffortDoesNotAttributeOldConfigToNewActiveProfile(t *testing.
 		t.Fatalf("auto config = %+v, available = %v; want old applied model", autoCfg, ok)
 	}
 	assertEffortWire(t, effortWireRequest(t, provider, requests), "old-model", ThinkingEffortAuto)
+	select {
+	case request := <-fallbackRequests:
+		assertEffortWire(t, request, "fallback-model", ThinkingEffortAuto)
+	case <-time.After(3 * time.Second):
+		t.Fatal("auto effort did not fail over to fallback profile")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	_, _, _, err = s.llmDirect.Complete(ctx, llm.CompletionRequest{})

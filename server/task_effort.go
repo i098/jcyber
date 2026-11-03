@@ -25,9 +25,11 @@ type effortProfileKey struct {
 type effortContextKey struct{}
 
 type profileEffortRouter struct {
-	mu        sync.RWMutex
-	providers map[string]llm.Provider
-	limited   llm.Provider
+	mu         sync.RWMutex
+	providers  map[string]llm.Provider
+	limited    llm.Provider
+	rateSecond float64
+	rateMinute float64
 }
 
 func (r *profileEffortRouter) provider(ctx context.Context) llm.Provider {
@@ -126,7 +128,7 @@ func (s *Server) providerForProfileEffortUnlocked(id int64, effort string) (llm.
 	} else {
 		shared := s.provShared[id]
 		if shared == nil {
-			shared = &profileEffortRouter{providers: map[string]llm.Provider{}}
+			shared = &profileEffortRouter{providers: map[string]llm.Provider{}, rateSecond: cfg.RatePerSecond, rateMinute: cfg.RatePerMinute}
 			shared.limited = llm.RateLimited(shared, llm.RateLimit{PerSecond: cfg.RatePerSecond, PerMinute: cfg.RatePerMinute})
 			if s.provShared == nil {
 				s.provShared = map[int64]*profileEffortRouter{}
@@ -155,12 +157,12 @@ func (s *Server) providerForProfileEffortUnlocked(id int64, effort string) (llm.
 	return prov, cfg, true
 }
 
-func (s *Server) environmentProviderForEffort(baseCfg agent.Config, name, effort string) (llm.Provider, agent.Config, bool) {
-	key := effortProfileKey{effort: effort}
+func (s *Server) providerForConfigEffort(id int64, baseCfg agent.Config, name, effort string) (llm.Provider, agent.Config, bool) {
+	key := effortProfileKey{id: id, effort: effort}
 	s.provCacheMu.Lock()
 	var cached *provEntry
 	if effort == "" {
-		cached = s.provByProfile[0]
+		cached = s.provByProfile[id]
 	} else {
 		cached = s.provByEffort[key]
 	}
@@ -178,24 +180,24 @@ func (s *Server) environmentProviderForEffort(baseCfg agent.Config, name, effort
 		return nil, agent.Config{}, false
 	}
 	prov = llmrec.Wrap(prov, s.m.PG(), cfg.Model, name, cfg.ThinkingType, cfg.ReasoningEffort, s.m.LLMRecordEnabled)
-	prov = bindSideProvider(prov, cfg, 0, name)
+	prov = bindSideProvider(prov, cfg, id, name)
 	s.provCacheMu.Lock()
 	if effort == "" {
-		cached = s.provByProfile[0]
+		cached = s.provByProfile[id]
 	} else {
 		cached = s.provByEffort[key]
 	}
 	if cached != nil {
 		prov, cfg = cached.prov, cached.cfg
 	} else {
-		shared := s.provShared[0]
+		shared := s.provShared[id]
 		if shared == nil {
-			shared = &profileEffortRouter{providers: map[string]llm.Provider{}}
+			shared = &profileEffortRouter{providers: map[string]llm.Provider{}, rateSecond: cfg.RatePerSecond, rateMinute: cfg.RatePerMinute}
 			shared.limited = llm.RateLimited(shared, llm.RateLimit{PerSecond: cfg.RatePerSecond, PerMinute: cfg.RatePerMinute})
 			if s.provShared == nil {
 				s.provShared = map[int64]*profileEffortRouter{}
 			}
-			s.provShared[0] = shared
+			s.provShared[id] = shared
 		}
 		shared.mu.Lock()
 		shared.providers[effort] = prov
@@ -206,7 +208,7 @@ func (s *Server) environmentProviderForEffort(baseCfg agent.Config, name, effort
 			if s.provByProfile == nil {
 				s.provByProfile = map[int64]*provEntry{}
 			}
-			s.provByProfile[0] = entry
+			s.provByProfile[id] = entry
 		} else {
 			if s.provByEffort == nil {
 				s.provByEffort = map[effortProfileKey]*provEntry{}
@@ -229,7 +231,7 @@ func (s *Server) resetEnvironmentEffortProviders() {
 
 func (s *Server) resetGlobalAutoProvider() {
 	s.provCacheMu.Lock()
-	delete(s.provByEffort, effortProfileKey{effort: ThinkingEffortAuto})
+	delete(s.provByEffort, effortProfileKey{id: s.llmProfileID, effort: ThinkingEffortAuto})
 	delete(s.globalByEffort, ThinkingEffortAuto)
 	s.provCacheMu.Unlock()
 }
@@ -266,33 +268,20 @@ func (s *Server) resolveGlobalProviderForEffort(effort string, withFailover bool
 	}
 	s.provCacheMu.Unlock()
 	s.cfgMu.Unlock()
-	var prov llm.Provider
-	var cfg agent.Config
-	var poolHeadID int64
-	if s.m != nil && s.m.pg != nil && appliedProfileID != 0 {
-		if s.profileConfigMatches(appliedProfileID, baseCfg) {
-			prov, cfg, _ = s.providerForProfileEffortUnlocked(appliedProfileID, effort)
-			if prov != nil && cfg == resolvedEffortConfig(baseCfg, effort) {
-				if active, err := s.m.pg.ActiveProfile(); err == nil && active != nil && active.ID == appliedProfileID {
-					poolHeadID = appliedProfileID
-				}
-			} else {
-				prov = nil
-			}
+	if s.m == nil {
+		return nil, agent.Config{}, false
+	}
+	if appliedProfileID != 0 && s.m.pg != nil {
+		if profile, err := s.m.pg.ProfileByID(appliedProfileID); err == nil && profile != nil {
+			name = profile.Name
 		}
 	}
-	if prov == nil {
-		if s.m == nil {
-			return nil, agent.Config{}, false
-		}
-		var ok bool
-		prov, cfg, ok = s.environmentProviderForEffort(baseCfg, name, effort)
-		if !ok {
-			return nil, agent.Config{}, false
-		}
+	prov, cfg, ok := s.providerForConfigEffort(appliedProfileID, baseCfg, name, effort)
+	if !ok {
+		return nil, agent.Config{}, false
 	}
-	if withFailover && poolHeadID != 0 {
-		prov = s.poolForActiveEffort(poolHeadID, prov, cfg, effort)
+	if withFailover && appliedProfileID != 0 {
+		prov = s.poolForActiveEffort(appliedProfileID, prov, cfg, effort)
 	}
 	s.provCacheMu.Lock()
 	if !withFailover {

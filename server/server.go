@@ -491,6 +491,11 @@ func (s *Server) rebuildCurrentLLM() error {
 }
 
 func (s *Server) applyLLMWithoutTaskAgentInvalidation(cfg agent.Config) error {
+	providerCfg := cfg
+	providerCfg.RatePerSecond, providerCfg.RatePerMinute = 0, 0
+	if _, err := providerCfg.NewProvider(); err != nil {
+		return err
+	}
 	s.cfgMu.Lock()
 	var prov llm.Provider
 	var appliedProfileID int64
@@ -508,7 +513,7 @@ func (s *Server) applyLLMWithoutTaskAgentInvalidation(cfg agent.Config) error {
 		} else {
 			s.resetEnvironmentEffortProviders()
 			var ok bool
-			prov, _, ok = s.environmentProviderForEffort(cfg, s.llmProf, "")
+			prov, _, ok = s.providerForConfigEffort(0, cfg, s.llmProf, "")
 			if !ok {
 				s.cfgMu.Unlock()
 				return fmt.Errorf("provider init failed for %s / %s", cfg.Provider(), cfg.Model)
@@ -679,12 +684,12 @@ func (s *Server) invalidateProfileAgents() {
 
 func (s *Server) invalidateProfileProvider(id int64) {
 	s.profileReapplyMu.Lock()
-	s.invalidateProfileProviderLocked(id)
+	s.invalidateProfileProviderLocked(id, true)
 	s.profileReapplyMu.Unlock()
 	s.invalidateTaskAgents()
 }
 
-func (s *Server) invalidateProfileProviderLocked(id int64) {
+func (s *Server) invalidateProfileProviderLocked(id int64, dropLimiter bool) {
 	s.invalidateProfileChatAgents()
 	s.provCacheMu.Lock()
 	delete(s.provByProfile, id)
@@ -693,7 +698,9 @@ func (s *Server) invalidateProfileProviderLocked(id int64) {
 			delete(s.provByEffort, key)
 		}
 	}
-	delete(s.provShared, id)
+	if dropLimiter {
+		delete(s.provShared, id)
+	}
 	s.globalByEffort = map[string]*provEntry{}
 	s.provCacheMu.Unlock()
 }
@@ -1447,7 +1454,7 @@ func (s *Server) setLLM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rebuildTaskAgents = true
-	s.invalidateProfileProviderLocked(id)
+	s.invalidateProfileProviderLocked(id, true)
 	savedCfg, ok := s.loadLLMConfig()
 	if !ok {
 		writeErr(w, 500, "saved provider is unavailable")

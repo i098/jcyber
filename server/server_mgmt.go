@@ -1811,14 +1811,6 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	if p.Format != "openai" || p.MaxTokensField != llm.MaxTokensFieldCompletion {
 		p.MaxTokensField = ""
 	}
-	candidate := agent.ConfigFrom(p.Format, p.Model, p.BaseURL, p.APIKey, p.Proxy)
-	candidate.ThinkingType, candidate.ReasoningEffort = p.ThinkingType, p.ReasoningEffort
-	candidate.MaxTokensField, candidate.SessionHeaderKey = p.MaxTokensField, p.SessionHeaderKey
-	s.applyProfileRetry(&candidate, &p)
-	if _, err := candidate.NewProvider(); err != nil {
-		writeErr(w, 400, "provider init failed: "+err.Error())
-		return
-	}
 	s.profileReapplyMu.Lock()
 	rebuildTaskAgents := false
 	defer func() {
@@ -1832,11 +1824,37 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	cfg, ok := s.loadProfileConfig(id)
+	if !ok {
+		writeJSON(w, 200, map[string]any{"id": id})
+		return
+	}
+	providerCfg := cfg
+	providerCfg.RatePerSecond, providerCfg.RatePerMinute = 0, 0
+	if _, err := providerCfg.NewProvider(); err != nil {
+		log.Printf("[engine] profile %d saved without reapply: %v", id, err)
+		writeJSON(w, 200, map[string]any{"id": id})
+		return
+	}
+	s.cfgMu.Lock()
+	appliedID := s.llmProfileID
+	s.cfgMu.Unlock()
+	if appliedID == id {
+		active, err := pg.ActiveProfile()
+		if err != nil || active == nil || active.ID != id {
+			writeJSON(w, 200, map[string]any{"id": id})
+			return
+		}
+	}
 	rebuildTaskAgents = true
 	// Editing a profile rebuilds any task pinned to it on its next round. Reapply
 	// the active profile too: the global fallback and explicit task chains must
 	// repopulate the same provider-cache entry and therefore share one limiter.
-	s.invalidateProfileProviderLocked(id)
+	s.provCacheMu.Lock()
+	shared := s.provShared[id]
+	keepLimiter := shared != nil && shared.rateSecond == cfg.RatePerSecond && shared.rateMinute == cfg.RatePerMinute
+	s.provCacheMu.Unlock()
+	s.invalidateProfileProviderLocked(id, !keepLimiter)
 	// Hot-apply. Not just when the ACTIVE profile changed: with failover on, any
 	// profile's key/model/priority/pool_exclude edit reshapes the chain, so the
 	// engine's provider has to be rebuilt either way.

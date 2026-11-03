@@ -120,10 +120,11 @@ func TestSpawnSchemaRefreshPreservesSavedEdits(t *testing.T) {
 	if got.Description != "saved spawn instructions" || got.Enabled || len(got.Agents) != 1 || got.Agents[0] != "worker" {
 		t.Fatalf("saved tool settings changed: %+v", got)
 	}
-	var parsed struct {
+	type schemaState struct {
 		Properties map[string]map[string]any `json:"properties"`
 		Required   []string                  `json:"required"`
 	}
+	var parsed schemaState
 	if err := json.Unmarshal(got.Schema, &parsed); err != nil {
 		t.Fatal(err)
 	}
@@ -145,5 +146,25 @@ func TestSpawnSchemaRefreshPreservesSavedEdits(t *testing.T) {
 	}
 	if names != 1 {
 		t.Fatalf("required name count = %d, want 1", names)
+	}
+	legacy := json.RawMessage(`{"type":"object","properties":{"description":{"type":"string","description":"Task description (short title)","default":"keep me"},"goal":{"type":"string"}},"required":["description","goal"]}`)
+	if err := m.pg.UpdateTool(tool.Name(), "saved spawn instructions", legacy, json.RawMessage(`["worker"]`), false); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.pg.SetSetting(flag, "false"); err != nil {
+		t.Fatal(err)
+	}
+	s.refreshSpawnTaskSchema()
+	got, err = m.pg.GetTool(tool.Name())
+	if err != nil || got == nil {
+		t.Fatalf("spawn_task missing after legacy refresh: %v", err)
+	}
+	parsed = schemaState{}
+	if err := json.Unmarshal(got.Schema, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	wantDescription := tool.InputSchema()["properties"].(map[string]any)["description"].(map[string]any)["description"]
+	if parsed.Properties["description"]["description"] != wantDescription || parsed.Properties["description"]["default"] != "keep me" || got.Description != "saved spawn instructions" {
+		t.Fatalf("legacy description upgrade changed user edits: %+v", got)
 	}
 }

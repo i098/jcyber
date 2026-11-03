@@ -576,7 +576,10 @@ func (s *Server) refreshSpawnTaskSchema() {
 	}
 	var key string
 	if err := s.m.pg.QueryRow(`UPDATE tools SET schema=schema || jsonb_build_object(
-  'properties', ($2::jsonb->'properties') || COALESCE(schema->'properties','{}'::jsonb),
+  'properties', ($2::jsonb->'properties') || CASE
+    WHEN schema #>> '{properties,description,description}' = 'Task description (short title)'
+    THEN jsonb_set(schema->'properties', '{description,description}', $2::jsonb #> '{properties,description,description}')
+    ELSE COALESCE(schema->'properties','{}'::jsonb) END,
   'required', CASE WHEN COALESCE(schema->'required','[]'::jsonb) @> '["name"]'::jsonb
     THEN COALESCE(schema->'required','[]'::jsonb)
     ELSE COALESCE(schema->'required','[]'::jsonb) || '["name"]'::jsonb END
