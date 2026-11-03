@@ -23,10 +23,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"pta/agent"
-	"pta/db"
 	"normasdk/llm"
 	"normasdk/skill"
+	"pta/agent"
+	"pta/db"
 )
 
 // validSkillName checks the agentskills.io name constraints, widened so a skill can
@@ -441,8 +441,6 @@ func (s *Server) pgSaveAgentConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// an agent's LLM binding change also invalidates pinned-task / per-profile caches
-	// so their next round re-resolves each agent's bound model.
 	if profileChanged {
 		s.invalidateProfileAgents()
 	}
@@ -450,12 +448,7 @@ func (s *Server) pgSaveAgentConfig(w http.ResponseWriter, r *http.Request) {
 	// web search). Rebuild them even when no global profile is configured.
 	s.invalidateTaskAgents()
 	// rebuild the live agents so the new max_turns/run_seconds/binding apply without a restart.
-	s.cfgMu.Lock()
-	cfg, on := s.llmCfg, s.llmOn
-	s.cfgMu.Unlock()
-	if on {
-		_ = s.applyLLM(cfg)
-	}
+	_ = s.rebuildCurrentLLM()
 	resp := map[string]any{"ok": true}
 	if req.MaxTurns != nil {
 		resp["max_turns"] = *req.MaxTurns
@@ -1818,19 +1811,44 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	if p.Format != "openai" || p.MaxTokensField != llm.MaxTokensFieldCompletion {
 		p.MaxTokensField = ""
 	}
+	s.profileReapplyMu.Lock()
+	rebuildTaskAgents := false
+	defer func() {
+		s.profileReapplyMu.Unlock()
+		if rebuildTaskAgents {
+			s.invalidateTaskAgents()
+		}
+	}()
 	id, err := pg.SaveProfile(&p)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	cfg, ok := s.loadProfileConfig(id)
+	if !ok {
+		writeJSON(w, 200, map[string]any{"id": id})
+		return
+	}
+	providerCfg := cfg
+	providerCfg.RatePerSecond, providerCfg.RatePerMinute = 0, 0
+	if _, err := providerCfg.NewProvider(); err != nil {
+		log.Printf("[engine] profile %d saved without reapply: %v", id, err)
+		writeJSON(w, 200, map[string]any{"id": id})
+		return
+	}
+	rebuildTaskAgents = true
 	// Editing a profile rebuilds any task pinned to it on its next round. Reapply
 	// the active profile too: the global fallback and explicit task chains must
 	// repopulate the same provider-cache entry and therefore share one limiter.
-	s.invalidateProfileAgents()
+	s.provCacheMu.Lock()
+	shared := s.provShared[id]
+	keepLimiter := shared != nil && shared.rateSecond == cfg.RatePerSecond && shared.rateMinute == cfg.RatePerMinute
+	s.provCacheMu.Unlock()
+	s.invalidateProfileProviderLocked(id, !keepLimiter)
 	// Hot-apply. Not just when the ACTIVE profile changed: with failover on, any
 	// profile's key/model/priority/pool_exclude edit reshapes the chain, so the
 	// engine's provider has to be rebuilt either way.
-	s.reapplyActiveProfile()
+	s.reapplyActiveProfileWithoutTaskAgentInvalidation()
 	writeJSON(w, 200, map[string]any{"id": id})
 }
 
@@ -1857,13 +1875,23 @@ func (s *Server) pgSaveLLMRetryPolicy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	s.profileReapplyMu.Lock()
+	rebuildTaskAgents := false
+	defer func() {
+		s.profileReapplyMu.Unlock()
+		if rebuildTaskAgents {
+			s.invalidateTaskAgents()
+		}
+	}()
 	if err := pg.SetLLMRetryPolicy(pol); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
 	s.applyRetryPolicy()
-	s.invalidateProfileAgents()
-	s.reapplyActiveProfile()
+	rebuildTaskAgents = s.refreshRetryPolicyProviders()
+	if s.reapplyActiveProfileWithoutTaskAgentInvalidation() {
+		rebuildTaskAgents = true
+	}
 	writeJSON(w, 200, pg.LLMRetryPolicy())
 }
 
@@ -1888,10 +1916,9 @@ func (s *Server) pgDeleteProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	s.invalidateProfileAgents() // drop cached agents for the removed profile
-	s.llmHealth.Reset(id)       // its breaker state is meaningless now (row is FK-cascaded away)
+	s.invalidateProfileProvider(id) // drop cached agents for the removed profile
+	s.llmHealth.Reset(id)           // its breaker state is meaningless now (row is FK-cascaded away)
 	s.restoreTasksAfterProfileDelete(pg)
-	// Cache invalidation also removed the active profile's shared provider entry.
 	// Reapply after task-state sync so the wake-up observes the post-delete chain.
 	s.reapplyActiveProfile()
 	writeJSON(w, 200, map[string]any{"deleted": id})
@@ -1929,12 +1956,21 @@ func (s *Server) pgActivateProfile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	s.profileReapplyMu.Lock()
+	rebuildTaskAgents := false
+	defer func() {
+		s.profileReapplyMu.Unlock()
+		if rebuildTaskAgents {
+			s.invalidateTaskAgents()
+		}
+	}()
 	if err := pg.SetActiveProfile(body.ID); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.invalidateProfileAgents() // active change may affect pinned-task fallbacks
-	s.reapplyActiveProfile()    // switch the running engine to the newly activated profile
+	rebuildTaskAgents = true
+	s.invalidateProfileChatAgents()
+	s.reapplyActiveProfileWithoutTaskAgentInvalidation()
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 

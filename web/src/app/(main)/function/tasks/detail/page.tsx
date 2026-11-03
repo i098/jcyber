@@ -361,8 +361,11 @@ function TaskDetailInner() {
               <ArrowLeftIcon />
             </Link>
           </Button>
-          <h1 className="min-w-0 flex-1 truncate font-semibold text-sm" title={task.name || task.description}>
-            {task.name || task.description}
+          <h1
+            className="min-w-0 flex-1 truncate font-semibold text-sm"
+            title={task.name || task.description || `Task #${task.id}`}
+          >
+            {task.name || task.description || `Task #${task.id}`}
           </h1>
           <code className="hidden rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground text-xs sm:inline">
             {task.id}

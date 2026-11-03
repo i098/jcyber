@@ -19,16 +19,15 @@ import (
 	"sync"
 	"time"
 
+	"normasdk/llm"
+	actool "normasdk/tool"
+	"normasdk/transcript"
 	"pta/agent"
 	"pta/db"
 	"pta/intercept"
 	"pta/llmpool"
-	"pta/llmrec"
 	"pta/report"
 	"pta/traffic"
-	"normasdk/llm"
-	actool "normasdk/tool"
-	"normasdk/transcript"
 )
 
 // BuildVersion is the backend application version, injected from cmd/jcyber at
@@ -51,15 +50,17 @@ type Server struct {
 	// free slots off the same snapshot and over-promote past the limit.
 	concMu sync.Mutex
 
-	cfgMu     sync.Mutex
-	chatAgent *agent.ChatAgent // conversational runner for the chat page; nil w/o LLM
+	cfgMu            sync.Mutex
+	profileReapplyMu sync.RWMutex
+	chatAgent        *agent.ChatAgent // conversational runner for the chat page; nil w/o LLM
 	// llmProv is the fully-decorated global provider (recorder + failover chain)
 	// installed by applyLLM. Task routers use it after an explicit chain is cleared.
-	llmProv   llm.Provider
-	llmDirect llm.Provider // concrete global provider, before any failover pool
-	llmCfg    agent.Config // current LLM config (key not exposed)
-	llmOn     bool
-	llmProf   string // active LLM profile name (for llmrec tagging)
+	llmProv      llm.Provider
+	llmDirect    llm.Provider // concrete global provider, before any failover pool
+	llmCfg       agent.Config // current LLM config (key not exposed)
+	llmProfileID int64
+	llmOn        bool
+	llmProf      string // active LLM profile name (for llmrec tagging)
 
 	// chatBusy guards the per-task main-agent run: the chat handler launches the
 	// agent on the server's background ctx (not the request ctx) and returns
@@ -93,14 +94,11 @@ type Server struct {
 	profMu         sync.Mutex
 	profChatAgents map[int64]*agent.ChatAgent // per-profile ChatAgent cache (chat page)
 
-	// provByProfile caches ONE provider per LLM profile id so every agent bound or
-	// pinned to the same profile shares a single provider instance — hence one rate
-	// limiter. applyLLM also resolves the persisted global-active profile through this
-	// cache, so global fallback and task chains do not accidentally double the
-	// configured request rate. Cleared on profile edits, then repopulated by active reapply.
-	provCacheMu   sync.Mutex
-	provByProfile map[int64]*provEntry
-	provCacheGen  uint64
+	provCacheMu    sync.Mutex
+	provByProfile  map[int64]*provEntry
+	provByEffort   map[effortProfileKey]*provEntry
+	provShared     map[int64]*profileEffortRouter
+	globalByEffort map[string]*provEntry
 
 	// llmHealth is the process-wide circuit-breaker state for LLM failover (轮询).
 	// It deliberately lives OUTSIDE the provider caches: rebuilding the chain
@@ -123,8 +121,13 @@ type Server struct {
 
 // provEntry is a cached provider + its config for one LLM profile id.
 type provEntry struct {
-	prov llm.Provider
-	cfg  agent.Config
+	prov          llm.Provider
+	cfg           agent.Config
+	baseCfg       agent.Config
+	retryOverride db.RetryOverride
+	name          string
+	priority      int
+	poolExclude   bool
 }
 
 // triggeredRun is one queued P3 trigger fire awaiting its turn for an agent.
@@ -149,7 +152,9 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		chatCancel: map[string]context.CancelCauseFunc{}, triggerQ: map[string][]triggeredRun{},
 		triggerActive: map[string]int{}, triggerCfg: map[string]triggerBehavior{},
 		profChatAgents: map[int64]*agent.ChatAgent{},
-		provByProfile:  map[int64]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
+		provByProfile:  map[int64]*provEntry{}, provByEffort: map[effortProfileKey]*provEntry{},
+		provShared:     map[int64]*profileEffortRouter{},
+		globalByEffort: map[string]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
 		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1)}
 	s.initSideQuestions()
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
@@ -337,14 +342,11 @@ func (s *Server) loadLLMConfig() (agent.Config, bool) {
 	if cfg.APIKey == "" {
 		return cfg, false
 	}
-	s.cfgMu.Lock()
-	s.llmProf = p.Name
-	s.cfgMu.Unlock()
 	return cfg, true
 }
 
 // saveLLMConfig persists the LLM config as the active "default" profile in PG.
-func (s *Server) saveLLMConfig(cfg agent.Config) error {
+func (s *Server) saveLLMConfig(cfg agent.Config) (int64, error) {
 	// cfg.Provider() already returns one of the three valid format strings
 	// (anthropic / openai / openai-responses), matching the DB CHECK constraint.
 	format := cfg.Provider()
@@ -379,24 +381,66 @@ func (s *Server) saveLLMConfig(cfg agent.Config) error {
 		Retry: retry,
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return s.m.pg.SetActiveProfile(newID)
+	return newID, s.m.pg.SetActiveProfile(newID)
 }
 
 // reapplyActiveProfile hot-reloads the engine from the active DB profile so that
 // saving or activating a profile takes effect without a restart. Best-effort:
 // logs on failure and leaves the running engine untouched.
 func (s *Server) reapplyActiveProfile() {
-	cfg, ok := s.loadLLMConfig()
-	if !ok {
-		return
+	s.profileReapplyMu.Lock()
+	applied := false
+	defer func() {
+		s.profileReapplyMu.Unlock()
+		if applied {
+			s.invalidateTaskAgents()
+		}
+	}()
+	applied = s.reapplyActiveProfileWithoutTaskAgentInvalidation()
+}
+
+func (s *Server) reapplyActiveProfileWithoutTaskAgentInvalidation() bool {
+	active, err := s.m.pg.ActiveProfile()
+	if err != nil {
+		return false
 	}
-	if err := s.applyLLM(cfg); err != nil {
-		log.Printf("[engine] reapply active profile failed: %v", err)
-		return
+	s.cfgMu.Lock()
+	appliedID := s.llmProfileID
+	s.cfgMu.Unlock()
+	profiles := []*db.LLMProfile{}
+	if active != nil {
+		profiles = append(profiles, active)
 	}
-	log.Printf("[engine] LLM reapplied from active profile: %s / %s", cfg.Provider(), cfg.Model)
+	if appliedID != 0 && (active == nil || active.ID != appliedID) {
+		if profile, err := s.m.pg.ProfileByID(appliedID); err == nil && profile != nil {
+			profiles = append(profiles, profile)
+		}
+	}
+	for _, profile := range profiles {
+		cfg, ok := s.loadProfileConfig(profile.ID)
+		if !ok {
+			continue
+		}
+		if err := s.applyLLMWithoutTaskAgentInvalidation(cfg); err != nil {
+			log.Printf("[engine] reapply profile %d failed: %v", profile.ID, err)
+			continue
+		}
+		log.Printf("[engine] LLM reapplied from profile %d: %s / %s", profile.ID, cfg.Provider(), cfg.Model)
+		return true
+	}
+	s.cfgMu.Lock()
+	cfg, on := s.llmCfg, s.llmOn
+	s.cfgMu.Unlock()
+	if on {
+		if err := s.applyLLMWithoutTaskAgentInvalidation(cfg); err == nil {
+			return true
+		} else {
+			log.Printf("[engine] reapply running LLM failed: %v", err)
+		}
+	}
+	return false
 }
 
 // webSearchFor gates the global web-search opts (backend/key) by an agent's own
@@ -423,38 +467,100 @@ func maxTokensResolver(cfg agent.Config) func() int {
 	return func() int { return maxTokens }
 }
 
+func (s *Server) profileConfigMatches(id int64, cfg agent.Config) bool {
+	profileCfg, ok := s.loadProfileConfig(id)
+	return ok && profileCfg == cfg
+}
+
 // applyLLM (re)builds the planner/worker/main-agent from cfg and installs them on
 // the running engine as the GLOBAL active pair. Safe to call at runtime (UI configures LLM).
 func (s *Server) applyLLM(cfg agent.Config) error {
-	var prov llm.Provider
-	// A persisted active profile must use the same cached provider as task chains
-	// and Agent bindings, otherwise each path owns a separate rate limiter.
-	if active, _ := s.m.pg.ActiveProfile(); active != nil {
-		if activeCfg, ok := s.loadProfileConfig(active.ID); ok && activeCfg == cfg {
-			prov, _, _ = s.providerForProfile(active.ID)
+	s.profileReapplyMu.Lock()
+	applied := false
+	defer func() {
+		s.profileReapplyMu.Unlock()
+		if applied {
+			s.invalidateTaskAgents()
 		}
+	}()
+	if err := s.applyLLMWithoutTaskAgentInvalidation(cfg); err != nil {
+		return err
 	}
-	if prov == nil {
-		var err error
-		prov, err = cfg.NewProvider()
-		if err != nil {
-			return err
+	applied = true
+	return nil
+}
+
+func (s *Server) rebuildCurrentLLM() error {
+	s.profileReapplyMu.Lock()
+	applied := false
+	defer func() {
+		s.profileReapplyMu.Unlock()
+		if applied {
+			s.invalidateTaskAgents()
 		}
-		// Non-persisted/env configs do not have a profile cache key.
-		s.cfgMu.Lock()
-		profName := s.llmProf
-		s.cfgMu.Unlock()
-		prov = llmrec.Wrap(prov, s.m.PG(), cfg.Model, profName, cfg.ThinkingType, cfg.ReasoningEffort, s.m.LLMRecordEnabled)
-		prov = bindSideProvider(prov, cfg, 0, profName)
+	}()
+	s.cfgMu.Lock()
+	cfg, on := s.llmCfg, s.llmOn
+	s.cfgMu.Unlock()
+	if !on {
+		return nil
+	}
+	if err := s.applyLLMWithoutTaskAgentInvalidation(cfg); err != nil {
+		return err
+	}
+	applied = true
+	return nil
+}
+
+func (s *Server) applyLLMWithoutTaskAgentInvalidation(cfg agent.Config) error {
+	providerCfg := cfg
+	providerCfg.RatePerSecond, providerCfg.RatePerMinute = 0, 0
+	if _, err := providerCfg.NewProvider(); err != nil {
+		return err
 	}
 	s.cfgMu.Lock()
+	var prov llm.Provider
+	var appliedProfileID int64
+	reusedApplied := false
+	// A persisted active profile must use the same cached provider as task chains
+	// and Agent bindings, otherwise each path owns a separate rate limiter.
+	if active, _ := s.m.pg.ActiveProfile(); active != nil && s.profileConfigMatches(active.ID, cfg) {
+		appliedProfileID = active.ID
+	} else if s.llmProfileID != 0 && s.profileConfigMatches(s.llmProfileID, cfg) {
+		appliedProfileID = s.llmProfileID
+	}
+	if appliedProfileID != 0 {
+		prov, _, _ = s.providerForProfileEffortUnlocked(appliedProfileID, "")
+		if prov == nil {
+			appliedProfileID = 0
+		}
+	}
+	if prov == nil && s.llmOn && s.llmProfileID != 0 && s.llmCfg == cfg && s.llmDirect != nil {
+		prov = s.llmDirect
+		appliedProfileID = s.llmProfileID
+		reusedApplied = true
+	}
+	if prov == nil {
+		if s.llmOn && s.llmProfileID == 0 && s.llmCfg == cfg && s.llmDirect != nil {
+			prov = s.llmDirect
+		} else {
+			s.resetEnvironmentEffortProviders()
+			var ok bool
+			prov, _, ok = s.providerForEffortUnlocked(0, "", &cfg, "")
+			if !ok {
+				s.cfgMu.Unlock()
+				return fmt.Errorf("provider init failed for %s / %s", cfg.Provider(), cfg.Model)
+			}
+		}
+	} else if s.llmProfileID == 0 {
+		s.resetEnvironmentEffortProviders()
+	}
 	s.llmDirect = prov
-	s.cfgMu.Unlock()
 	// LLM 轮询(默认关):把激活配置包进故障转移链,当前配置不可用时自动切下一个。
 	// 只影响「走全局激活配置」的这条路径——agent 绑定 / 任务 pin 的走 providerForProfile,
 	// 默认仍然独占该配置(见 poolForBinding)。关闭或无备选时返回原 provider,行为不变。
-	if act, err := s.m.pg.ActiveProfile(); err == nil && act != nil {
-		prov = s.poolForActive(act.ID, prov, cfg)
+	if appliedProfileID != 0 {
+		prov = s.poolForActive(appliedProfileID, prov, cfg)
 	}
 	// No global planner/worker pair: every task runs on its own task-routed pair
 	// (agentsForTask), resolved through the engine's authoritative resolver. Global
@@ -466,7 +572,6 @@ func (s *Server) applyLLM(cfg agent.Config) error {
 	// per-agent binding is resolved at Chat time (runConversationSync →
 	// chatAgentForProfile). The main-agent has no global instance: each task builds its
 	// own via agentsForTask (task-routed), so nothing is constructed for it here.
-	s.cfgMu.Lock()
 	// chat agent serves MANY custom agents by key → it holds the GLOBAL opts
 	// (backend/key) and gates Enabled per-conversation-agent at Chat time. 对话始终用激活配置。
 	s.chatAgent = agent.NewChatAgent(prov, cfg.Model, s.m.dir, tx, win) // chat page runner
@@ -476,11 +581,22 @@ func (s *Server) applyLLM(cfg agent.Config) error {
 	s.chatAgent.SetNonStreaming(nonStreamingResolver(cfg))
 	s.chatAgent.SetMaxTokens(maxTokensResolver(cfg))
 	s.chatAgent.SetNoaEnabled(s.m.NoaCompactionEnabled) // 实验功能:noa 上下文压缩(每 run 读)
+	configChanged := !s.llmOn || s.llmCfg != cfg || s.llmProfileID != appliedProfileID
 	s.llmProv = prov
 	s.llmCfg = cfg
+	s.llmProfileID = appliedProfileID
 	s.llmOn = true
+	if appliedProfileID == 0 {
+		s.llmProf = ""
+	} else if !reusedApplied {
+		if profile, err := s.m.pg.ProfileByID(appliedProfileID); err == nil && profile != nil {
+			s.llmProf = profile.Name
+		}
+	}
+	if configChanged {
+		s.resetGlobalAutoProvider()
+	}
 	s.cfgMu.Unlock()
-	s.invalidateTaskAgents()
 
 	// wake the active task so a task created while idle starts exploring.
 	if t := s.m.ActiveTask(); t != nil {
@@ -560,52 +676,21 @@ func (s *Server) chatUnavailableReason() string {
 // bound/pinned to the same profile shares one provider instance (one rate limiter).
 // ok=false when the profile is missing/invalid → caller falls back to the global pair.
 func (s *Server) providerForProfile(id int64) (llm.Provider, agent.Config, bool) {
-	s.provCacheMu.Lock()
-	if e := s.provByProfile[id]; e != nil {
-		s.provCacheMu.Unlock()
-		return e.prov, e.cfg, true
-	}
-	generation := s.provCacheGen
-	s.provCacheMu.Unlock()
-	cfg, ok := s.loadProfileConfig(id)
-	if !ok {
-		return nil, agent.Config{}, false
-	}
-	prov, err := cfg.NewProvider()
-	if err != nil {
-		log.Printf("[engine] build provider for LLM profile %d failed: %v", id, err)
-		return nil, agent.Config{}, false
-	}
-	// Wrap with recorder, tagged with this profile's name.
-	if p, _ := s.m.pg.ProfileByID(id); p != nil {
-		prov = llmrec.Wrap(prov, s.m.PG(), cfg.Model, p.Name, cfg.ThinkingType, cfg.ReasoningEffort, s.m.LLMRecordEnabled)
-		prov = bindSideProvider(prov, cfg, id, p.Name)
-	}
-	s.provCacheMu.Lock()
-	if generation != s.provCacheGen {
-		s.provCacheMu.Unlock()
-		return s.providerForProfile(id)
-	}
-	if e := s.provByProfile[id]; e != nil { // lost the race → keep the winner
-		prov, cfg = e.prov, e.cfg
-	} else {
-		s.provByProfile[id] = &provEntry{prov: prov, cfg: cfg}
-		log.Printf("[engine] built provider for LLM profile %d (%s / %s)", id, cfg.Provider(), cfg.Model)
-	}
-	s.provCacheMu.Unlock()
-	return prov, cfg, true
+	return s.providerForProfileEffort(id, "")
 }
 
 // chatAgentForProfile returns a ChatAgent built from a specific LLM profile, cached
 // per profile id. Returns nil if the profile is missing or has no API key.
 func (s *Server) chatAgentForProfile(id int64) *agent.ChatAgent {
+	s.profileReapplyMu.RLock()
+	defer s.profileReapplyMu.RUnlock()
 	s.profMu.Lock()
 	cached := s.profChatAgents[id]
 	s.profMu.Unlock()
 	if cached != nil {
 		return cached
 	}
-	prov, cfg, ok := s.providerForProfile(id)
+	prov, cfg, ok := s.providerForProfileEffortUnlocked(id, "")
 	if !ok {
 		return nil
 	}
@@ -627,18 +712,43 @@ func (s *Server) chatAgentForProfile(id int64) *agent.ChatAgent {
 	return ca
 }
 
-// invalidateProfileAgents drops the per-profile ChatAgent + provider caches so a profile
-// save/activate/delete — or an agent's binding change — rebuilds pinned tasks' agents
-// (and re-resolves each agent's bound model) on their next round.
 func (s *Server) invalidateProfileAgents() {
+	s.profileReapplyMu.Lock()
+	s.invalidateProfileChatAgents()
+	s.provCacheMu.Lock()
+	s.globalByEffort = map[string]*provEntry{}
+	s.provCacheMu.Unlock()
+	s.profileReapplyMu.Unlock()
+	s.invalidateTaskAgents()
+}
+
+func (s *Server) invalidateProfileProvider(id int64) {
+	s.profileReapplyMu.Lock()
+	s.invalidateProfileProviderLocked(id, true)
+	s.profileReapplyMu.Unlock()
+	s.invalidateTaskAgents()
+}
+
+func (s *Server) invalidateProfileProviderLocked(id int64, dropLimiter bool) {
+	s.invalidateProfileChatAgents()
+	s.provCacheMu.Lock()
+	delete(s.provByProfile, id)
+	for key := range s.provByEffort {
+		if key.id == id {
+			delete(s.provByEffort, key)
+		}
+	}
+	if dropLimiter {
+		delete(s.provShared, id)
+	}
+	s.globalByEffort = map[string]*provEntry{}
+	s.provCacheMu.Unlock()
+}
+
+func (s *Server) invalidateProfileChatAgents() {
 	s.profMu.Lock()
 	s.profChatAgents = map[int64]*agent.ChatAgent{}
 	s.profMu.Unlock()
-	s.provCacheMu.Lock()
-	s.provCacheGen++
-	s.provByProfile = map[int64]*provEntry{}
-	s.provCacheMu.Unlock()
-	s.invalidateTaskAgents()
 }
 
 func (s *Server) chatAgentRef() *agent.ChatAgent {
@@ -1345,16 +1455,27 @@ func (s *Server) setLLM(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "provider init failed: "+err.Error())
 		return
 	}
-	if err := s.saveLLMConfig(cfg); err != nil {
+	s.profileReapplyMu.Lock()
+	rebuildTaskAgents := false
+	defer func() {
+		s.profileReapplyMu.Unlock()
+		if rebuildTaskAgents {
+			s.invalidateTaskAgents()
+		}
+	}()
+	id, err := s.saveLLMConfig(cfg)
+	if err != nil {
 		writeErr(w, 500, "persist provider failed: "+err.Error())
 		return
 	}
-	s.invalidateProfileAgents()
-	if _, ok := s.loadLLMConfig(); !ok {
+	rebuildTaskAgents = true
+	s.invalidateProfileProviderLocked(id, true)
+	savedCfg, ok := s.loadLLMConfig()
+	if !ok {
 		writeErr(w, 500, "saved provider is unavailable")
 		return
 	}
-	if err := s.applyLLM(cfg); err != nil {
+	if err := s.applyLLMWithoutTaskAgentInvalidation(savedCfg); err != nil {
 		writeErr(w, 400, "provider init failed: "+err.Error())
 		return
 	}
@@ -1443,7 +1564,7 @@ func truncateReply(s string) string {
 }
 
 type createTaskReq struct {
-	Name                 string   `json:"name,omitempty"` // 可选任务名称;省略/空=未命名
+	Name                 string   `json:"name"`
 	CategoryID           *int64   `json:"category_id,omitempty"`
 	Description          string   `json:"description"`
 	Goal                 string   `json:"goal"`
@@ -1453,8 +1574,9 @@ type createTaskReq struct {
 	CompanyIDs           []int64  `json:"company_ids,omitempty"`       // 关联企业范围并快照关联当前企业资产;不复制资产或强制生成意图
 	TimeoutSeconds       int      `json:"timeout_seconds"`             // 任务级超时(秒);0/省略=不限时
 	PlanHeartbeatSeconds int      `json:"plan_heartbeat_seconds"`      // planner 心跳触发间隔(秒);0/省略=默认600(10min);下限=默认=600,低于自动抬到600
-	SeedFirstIntent      *bool    `json:"seed_first_intent,omitempty"` // 创建时直接下发一条种子意图(内容=描述+目标),让 worker 免等首轮 planner 直接开跑;省略/null=默认关闭,走标准先规划再执行。显式传 true 才开(CTF 常一 work 解决时可省掉开跑前的 planner 轮)。
+	SeedFirstIntent      *bool    `json:"seed_first_intent,omitempty"` // 创建时直接下发一条种子意图,让 worker 免等首轮 planner 直接开跑;省略/null=默认关闭,走标准先规划再执行。显式传 true 才开(CTF 常一 work 解决时可省掉开跑前的 planner 轮)。
 	CoverageEnabled      *bool    `json:"coverage_enabled,omitempty"`  // 资产覆盖度功能;省略/null=默认开(true)。false=关闭覆盖度计算/展示/自动累积范围+隐藏 add_task_scope/list_untested_assets。company 关联不受影响。
+	ThinkingEffort       string   `json:"thinking_effort,omitempty"`
 	// InterceptRules 任务级资产拦截/允许规则(创建时录入,存 task_intercept_rules,不进全局表)。
 	InterceptRules []taskInterceptRuleReq `json:"intercept_rules,omitempty"`
 }
@@ -1465,11 +1587,16 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad json: "+err.Error())
 		return
 	}
-	if strings.TrimSpace(req.Description) == "" {
-		req.Description = "Untitled Task"
-	}
 	if len(req.LLMProfileIDs) == 0 && req.LLMProfileID != nil {
 		req.LLMProfileIDs = []int64{*req.LLMProfileID}
+	}
+	switch req.ThinkingEffort {
+	case "":
+		req.ThinkingEffort = ThinkingEffortMax
+	case ThinkingEffortMax, ThinkingEffortAuto:
+	default:
+		writeErr(w, 400, `thinking_effort must be "auto" or "max"`)
+		return
 	}
 	if err := s.validateTaskProfileIDs(req.LLMProfileIDs); err != nil {
 		writeErr(w, 400, err.Error())
@@ -1511,6 +1638,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	t, err := s.m.CreateTaskWithOptions(req.Description, req.Goal, db.TaskCreateOptions{
 		Name: strings.TrimSpace(req.Name), CategoryID: req.CategoryID,
 		SourceTaskIDs: sourceIDs, CompanyIDs: req.CompanyIDs, LLMProfileIDs: req.LLMProfileIDs,
+		ThinkingEffort: req.ThinkingEffort,
 		TimeoutSeconds: req.TimeoutSeconds, PlanHeartbeatSeconds: req.PlanHeartbeatSeconds,
 		CoverageEnabled: req.CoverageEnabled,
 		InterceptRules:  interceptRules,
@@ -1530,7 +1658,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[task] New Task #%s «%s» goal: %s", t.ID, req.Description, req.Goal)
 	// 共享的建后流程(seed + 种子意图 + 后台目标分解 + engine.Run),与 spawn_task 复用同一段。
 	// launchTask 内部异步,不阻塞 UI —— 目标分解在后台可见地进行。
-	s.launchTask(t, req.Description+" "+req.Goal, req.SeedFirstIntent != nil && *req.SeedFirstIntent)
+	s.launchTask(t, req.SeedFirstIntent != nil && *req.SeedFirstIntent)
 	writeJSON(w, 201, taskDTO(t, s.resolvedTaskStatus(t)))
 }
 
@@ -1691,7 +1819,7 @@ func (s *Server) seed(t *Task, text string) {
 			rootID, _ = as.UpsertRootDomain(db.UpsertRootDomainReq{Domain: host, TaskID: taskID})
 		}
 		if rootID > 0 {
-			_ = as.SetTaskAssetSource(taskID, rootID, "task", "Initialized from task description or goal", nil)
+			_ = as.SetTaskAssetSource(taskID, rootID, "task", "Initialized from task target", nil)
 		}
 	}
 	// anchor the seeded assets to this task's begin root as lineage/provenance
@@ -1707,13 +1835,13 @@ func (s *Server) seed(t *Task, text string) {
 	// 消费掉而绕过 Run 的门控 → 种子任务仍误触发首轮。
 }
 
-// seedFirstIntent writes ONE open intent (summary = 描述+目标) into the task's
+// seedFirstIntent writes ONE open intent into the task's
 // frontier at creation, so a worker can claim and run it immediately without first
 // waiting a planner round. Mirrors a planner top-level intent: it links from the
 // origin fact (RelDerivedFrom) so it still traces back to a fact node. Best-effort —
 // a failure just falls back to the normal planner-driven flow.
 func (s *Server) seedFirstIntent(t *Task) {
-	summary := fmt.Sprintf("Complete task goal: %s (task: %s)", t.Goal, t.Description)
+	summary := fmt.Sprintf("Complete task goal: %s (task: %s)", t.Goal, strings.TrimSpace(taskCreationName(t)+" "+t.Description))
 	id, err := t.Store.AddIntent(map[string]any{"summary": summary}, 8, nil, "seed")
 	if err != nil {
 		log.Printf("[seed] task %s: failed to issue seed intent: %v", t.ID, err)
@@ -3542,14 +3670,9 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if changed {
 		// rebuild agents so the new proxy/tools/prompt/web-search take hold (only if LLM configured).
-		s.cfgMu.Lock()
-		cfg, on := s.llmCfg, s.llmOn
-		s.cfgMu.Unlock()
-		if on {
-			if err := s.applyLLM(cfg); err != nil {
-				writeErr(w, 500, err.Error())
-				return
-			}
+		if err := s.rebuildCurrentLLM(); err != nil {
+			writeErr(w, 500, err.Error())
+			return
 		}
 	}
 	writeJSON(w, 200, s.settingsPayload())

@@ -14,13 +14,13 @@ import (
 	"sync"
 	"time"
 
+	actool "normasdk/tool"
 	"pta/agent"
 	pgdb "pta/db"
 	"pta/enrich"
 	"pta/guard"
 	"pta/intercept"
 	"pta/traffic"
-	actool "normasdk/tool"
 )
 
 // Task is one engagement: a description + goal + its own exploration store,
@@ -48,6 +48,7 @@ type Task struct {
 	LLMProfileID       *int64  `json:"llm_profile_id,omitempty"` // 指定运行本任务 planner/worker 的 LLM 配置;nil=用全局激活配置
 	LLMProfileIDs      []int64 `json:"llm_profile_ids,omitempty"`
 	ActiveLLMProfileID *int64  `json:"active_llm_profile_id,omitempty"`
+	ThinkingEffort     string  `json:"thinking_effort,omitempty"`
 	LLMChainRevision   int64   `json:"-"`
 	LLMFailoverState   string  `json:"llm_failover_state,omitempty"`
 	LLMFailoverReason  string  `json:"llm_failover_reason,omitempty"`
@@ -839,6 +840,7 @@ func taskFromPG(pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Inter
 		CompletedAt: unixOrZero(pt.CompletedAt), Status: pt.Status, ParentRef: pt.ParentRef,
 		LLMProfileID:  pt.LLMProfileID,
 		LLMProfileIDs: append([]int64(nil), pt.LLMProfileIDs...), ActiveLLMProfileID: pt.ActiveLLMProfileID,
+		ThinkingEffort:   pt.ThinkingEffort,
 		LLMChainRevision: pt.LLMChainRevision,
 		LLMFailoverState: pt.LLMFailoverState, LLMFailoverReason: pt.LLMFailoverReason,
 		SourceTaskIDs:  append([]int64(nil), pt.SourceTaskIDs...),

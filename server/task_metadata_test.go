@@ -60,6 +60,73 @@ func TestTaskMetadataPatchReturnsRenameAndPin(t *testing.T) {
 	}
 }
 
+func TestTaskRename(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v) — skipping", err)
+	}
+	defer m.Close()
+	task, err := m.CreateTask("original description", "original goal", nil, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskID, _ := strconv.ParseInt(task.ID, 10, 64)
+	defer func() { _ = m.pg.DeleteTask(taskID) }()
+	s := New(context.Background(), m, t.TempDir(), t.TempDir(), t.TempDir())
+	token, err := signJWT(s.jwtKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := s.Handler()
+
+	for _, test := range []struct {
+		label  string
+		id     string
+		name   string
+		status int
+	}{
+		{"trimmed name persists", task.ID, " \tRenamed task\n ", http.StatusOK},
+		{"empty name rejected", task.ID, "", http.StatusBadRequest},
+		{"whitespace name rejected", task.ID, " \t\n ", http.StatusBadRequest},
+		{"unknown task rejected", "4611686018427387903", "Missing task", http.StatusNotFound},
+	} {
+		t.Run(test.label, func(t *testing.T) {
+			body, err := json.Marshal(map[string]string{"name": test.name})
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodPatch, "/api/tasks/"+test.id, bytes.NewReader(body))
+			req.Header.Set("Authorization", "Bearer "+token)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != test.status {
+				t.Fatalf("rename status=%d want=%d body=%s", rec.Code, test.status, rec.Body.String())
+			}
+			if test.status == http.StatusOK {
+				var updated struct {
+					Name string `json:"name"`
+				}
+				if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+					t.Fatal(err)
+				}
+				if updated.Name != "Renamed task" {
+					t.Fatalf("rename response name=%q", updated.Name)
+				}
+			}
+			persisted, err := m.pg.GetTask(taskID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if persisted == nil || persisted.Name != "Renamed task" {
+				t.Fatalf("rename did not persist or invalid request changed name: %+v", persisted)
+			}
+			if persisted.Description != "original description" || persisted.Goal != "original goal" {
+				t.Fatalf("rename changed description or goal: %+v", persisted)
+			}
+		})
+	}
+}
+
 func TestConversationBatchDeleteReportsMissing(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {

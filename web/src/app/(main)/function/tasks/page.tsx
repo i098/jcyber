@@ -1377,9 +1377,13 @@ function TaskNameEditor({ task, onRename }: { task: Task; onRename: (task: Task,
       <Link
         href={`/function/tasks/detail?id=${encodeURIComponent(task.id)}`}
         className="min-w-0 truncate rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        title={task.name?.trim() ? task.name : task.description}
+        title={task.name?.trim() ? task.name : task.description || `Task #${task.id}`}
       >
-        {task.name?.trim() ? task.name : <span className="text-muted-foreground">Unnamed</span>}
+        {task.name?.trim() ? (
+          task.name
+        ) : (
+          <span className="text-muted-foreground">{task.description ? "Unnamed" : `Task #${task.id}`}</span>
+        )}
       </Link>
       <Button
         type="button"
@@ -3126,6 +3130,7 @@ function CreateTaskSheet({
   const [companies, setCompanies] = React.useState<Company[]>([]);
   const [sourceTaskIDs, setSourceTaskIDs] = React.useState<string[]>([]);
   const [companyIDs, setCompanyIDs] = React.useState<number[]>([]);
+  const [thinkingEffort, setThinkingEffort] = React.useState<"auto" | "max">("max");
   const [llmProfileIDs, setLLMProfileIDs] = React.useState<string[]>([]);
   const [creating, setCreating] = React.useState(false);
   const [timeoutMin, setTimeoutMin] = React.useState(""); // 任务级超时(分钟);空/0 = 不限时
@@ -3175,8 +3180,8 @@ function CreateTaskSheet({
   }
 
   async function createTask() {
-    if (!description.trim() || !goal.trim()) {
-      toast.error("Enter a description and goal");
+    if (!goal.trim()) {
+      toast.error("Enter a goal");
       return;
     }
     if (sourceTaskIDs.length > MAX_SOURCE_TASKS) {
@@ -3192,6 +3197,7 @@ function CreateTaskSheet({
         categoryId: categoryID,
         description: description.trim(),
         goal: goal.trim(),
+        thinkingEffort,
         llmProfileIds: llmProfileIDs.map(Number),
         sourceTaskIds: sourceTaskIDs,
         companyIds: companyIDs,
@@ -3211,6 +3217,7 @@ function CreateTaskSheet({
       setSelectedTemplateID(null);
       setSourceTaskIDs([]);
       setCompanyIDs([]);
+      setThinkingEffort("max");
       setLLMProfileIDs([]);
       setTimeoutMin("");
       setHeartbeatMin("10");
@@ -3244,7 +3251,9 @@ function CreateTaskSheet({
       >
         <SheetHeader className="border-b p-6">
           <SheetTitle>New Task</SheetTitle>
-          <SheetDescription>Enter the test target and goal. Expand advanced settings as needed.</SheetDescription>
+          <SheetDescription>
+            Include the test target in the Name or Goal. Description adds optional context.
+          </SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto p-6">
@@ -3269,7 +3278,7 @@ function CreateTaskSheet({
               <Label htmlFor="name">Name (optional)</Label>
               <Input
                 id="name"
-                placeholder="Give the Task a recognizable name, for example: Acme Website Pentest"
+                placeholder="Short title with target, for example: example.com scan"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
@@ -3288,11 +3297,11 @@ function CreateTaskSheet({
               </FieldDescription>
             </Field>
             <div className="grid gap-2">
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description">Description (optional)</Label>
               <Textarea
                 id="description"
                 className="min-h-32"
-                placeholder="Test target and background, for example: Test the Site example.com"
+                placeholder="Additional context, for example: Focus on login and admin routes"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
@@ -3372,6 +3381,20 @@ function CreateTaskSheet({
               </FieldDescription>
             </Field>
             <Field>
+              <FieldLabel htmlFor="thinking-effort">Thinking Effort</FieldLabel>
+              <Select value={thinkingEffort} onValueChange={(value) => setThinkingEffort(value as "auto" | "max")}>
+                <SelectTrigger id="thinking-effort" className="w-full sm:w-64">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="max">Max - configured profile effort</SelectItem>
+                    <SelectItem value="auto">Auto - provider default</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field>
               <FieldLabel htmlFor="llm-profiles">LLM Profile Chain</FieldLabel>
               <TaskLLMProfileChain
                 profiles={profiles}
@@ -3436,13 +3459,13 @@ function CreateTaskSheet({
                       checked={seedFirstIntent}
                       onCheckedChange={(v) => setSeedFirstIntent(!!v)}
                     />
-                    Dispatch the first intent directly (description + goal)
+                    Dispatch the first intent directly (name + description + goal)
                   </label>
                   <p className="text-muted-foreground text-xs">
-                    When enabled, dispatch "description + goal" as an intent at creation so the worker starts without
-                    waiting for initial planning. The planner assesses and supplements the result afterward. Recommended
-                    for scenarios such as CTFs often solved in one work item; disable for the standard plan-then-execute
-                    flow.
+                    When enabled, dispatch "name + description + goal" as an intent at creation so the worker starts
+                    without waiting for initial planning. The planner assesses and supplements the result afterward.
+                    Recommended for scenarios such as CTFs often solved in one work item; disable for the standard
+                    plan-then-execute flow.
                   </p>
                 </div>
                 <div className="grid gap-2">

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sort"
@@ -17,6 +18,27 @@ type goalSpec struct {
 	VulnClass string
 }
 
+func taskCreationName(t *Task) string {
+	if t.Store == nil {
+		return ""
+	}
+	origin, err := t.Store.OriginFactID()
+	if err != nil || origin == 0 {
+		return ""
+	}
+	node, err := t.Store.GetNode(origin)
+	if err != nil || node == nil {
+		return ""
+	}
+	var payload struct {
+		CreationName string `json:"creation_name"`
+	}
+	if json.Unmarshal(node.Payload, &payload) != nil {
+		return ""
+	}
+	return payload.CreationName
+}
+
 // launchTask runs the shared post-creation sequence for a task created via ANY
 // path (HTTP createTask 或 orchestration spawn_task),避免两处复制粘贴:
 //  1. seed 根资产,喂给事件驱动 loop;
@@ -25,9 +47,13 @@ type goalSpec struct {
 //     分解完再 engine.Run —— 引擎在 goal 节点就绪后才启动,避免 planner 抢在 goal 之前跑的竞态。
 //
 // 异步(goroutine)所以调用方立即返回,两条路径行为一致:秒建任务、后台拆目标。
-func (s *Server) launchTask(t *Task, seedText string, seedFirstIntent bool) {
+func (s *Server) launchTask(t *Task, seedFirstIntent bool) {
 	if !s.engine.beginTaskOperation(t.ID) {
 		return
+	}
+	seedText := taskCreationName(t)
+	if _, _, _, ok := parseTarget(seedText); !ok {
+		seedText = t.Goal
 	}
 	s.seed(t, seedText)
 	if seedFirstIntent {
@@ -384,7 +410,11 @@ func (s *Server) createGoals(ctx context.Context, t *Task, emit func(db.Activity
 	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
 	s.engine.BeginLLMCall(t.ID)
 	goalRuntime := s.agentsForTask(t).runtime
-	decomposed := agent.DecomposeGoalsWithProvider(ctx, goalRuntime, s.m.dir, t.Goal, t.Description, as, t.Store, taskID, goalRuntime.nonStreaming(), goalRuntime.maxTokens(), emit)
+	description := t.Description
+	if name := taskCreationName(t); name != "" {
+		description = "Target from task creation: " + name + "\n" + description
+	}
+	decomposed := agent.DecomposeGoalsWithProvider(ctx, goalRuntime, s.m.dir, t.Goal, description, as, t.Store, taskID, goalRuntime.nonStreaming(), goalRuntime.maxTokens(), emit)
 	s.engine.EndLLMCall(t.ID)
 	for _, g := range decomposed {
 		if strings.TrimSpace(g.Text) != "" {

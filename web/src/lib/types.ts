@@ -33,6 +33,7 @@ export interface Task {
   llm_profile_id?: number; // LLM profile used; absent = default profile
   llm_profile_ids?: number[]; // ordered task-level failover chain
   active_llm_profile_id?: number; // profile used by the next LLM call
+  thinking_effort?: "auto" | "max";
   llm_failover_state?: "default" | "ready" | "chain_exhausted" | string;
   llm_failover_reason?: string;
   source_task_ids?: string[]; // directly related tasks inherited as read-only context

@@ -223,15 +223,13 @@ export default function DashboardPage() {
     let alive = true;
     const load = async () => {
       try {
-        const [traf, counts, agentList, mcpList, skillList, toolList, profileList, usage] = await Promise.all([
+        const [traf, counts, agentList, mcpList, skillList, toolList] = await Promise.all([
           api.traffic(0, 50),
           api.assetCounts(),
           api.agents(),
           api.mcpServers(),
           api.skills(),
           api.tools(),
-          api.llmProfiles(),
-          api.usageStats(365),
         ]);
         if (!alive) return;
         setTraffic(traf.exchanges ?? []);
@@ -240,11 +238,33 @@ export default function DashboardPage() {
         setMcpServers(mcpList);
         setSkills(skillList);
         setTools(toolList);
-        setLLMProfiles(profileList);
-        setUsageStats(usage);
       } catch {
         /* transient errors */
       }
+    };
+    void load();
+    const t = setInterval(load, 15000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    let alive = true;
+    const load = () => {
+      void api
+        .usageStats(365)
+        .then((usage) => {
+          if (alive) setUsageStats(usage);
+        })
+        .catch(() => {});
+      void api
+        .llmProfiles()
+        .then((profiles) => {
+          if (alive) setLLMProfiles(profiles);
+        })
+        .catch(() => {});
     };
     void load();
     const t = setInterval(load, 15000);
@@ -329,7 +349,7 @@ export default function DashboardPage() {
   const defaultProfileId = activeProfile ? Number(activeProfile.id) : null;
 
   // 数据源开关：旧版 = activity（task.tokens + 会话），新版 = llm_usage 计量账本。
-  const [tokenVersion, setTokenVersion] = React.useState<"old" | "new">("old");
+  const [tokenVersion, setTokenVersion] = React.useState<"old" | "new">("new");
   // selected profile tab: "all" = 全部; number = specific profile id
   const [tokenTab, setTokenTab] = React.useState<number | null | "all">("all");
   // day range for the daily bar chart

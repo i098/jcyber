@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"pta/agent"
-	"pta/db"
 	"normasdk/permission"
 	actool "normasdk/tool"
+	"pta/agent"
+	"pta/db"
 )
 
 // jsonResult marshals v to a JSON tool result.
@@ -240,37 +240,46 @@ func (s *Server) toolListLLMProfiles() actool.CoreTool {
 
 func (s *Server) toolSpawnTask() actool.CoreTool {
 	return wrTool("spawn_task",
-		"Create a subtask and start its exploration engine, returning task_id. Delegate a unit of work (such as a challenge or target) as an independent task. parent_ref is optional: supply the current orchestration's parent task id to establish a parent-child relationship.",
+		"Create a subtask and start its exploration engine, returning task_id. Delegate a unit of work (such as a challenge or target) as an independent task. Put an optional name or target separately from its description. parent_ref is optional: supply the current orchestration's parent task id to establish a parent-child relationship.",
 		objSchema(map[string]any{
-			"description":            strParam("Task description (short title)"),
+			"name":                   strParam("Optional task name; include a domain or IP target here to seed the task's asset graph, or put the target in the goal"),
+			"description":            strParam("Task description (execution context, separate from the name)"),
 			"goal":                   strParam("Task goal (what to achieve)"),
 			"parent_ref":             strParam("Optional: parent task id (for a parent-child relationship)"),
 			"source_task_ids":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": fmt.Sprintf("Optional: list of source task ids for read-only inheritance (up to %d). The subtask can reference assets/conclusions already discovered by these tasks as a starting point; unlike parent_ref's parent-child pointer, this inherits content.", db.MaxTaskSourceCount)},
 			"llm_profile_id":         map[string]any{"type": "integer", "description": "Optional: LLM profile id for this subtask's planner/worker (see list_llm_profiles); if omitted, inherit the parent task's profile, then fall back to the globally active profile"},
+			"thinking_effort":        map[string]any{"type": "string", "enum": []string{ThinkingEffortMax, ThinkingEffortAuto}, "description": "Optional: max keeps the selected profile's configured thinking effort; auto lets the provider choose its default. Defaults to max."},
 			"timeout_seconds":        map[string]any{"type": "integer", "description": "Optional: task timeout (seconds). Triggers graceful shutdown and enters the timeout terminal state when reached; omitted or 0 = unlimited"},
 			"plan_heartbeat_seconds": map[string]any{"type": "integer", "description": "Optional: planner heartbeat interval (seconds). If this interval passes since the last planning round ended/task started with no trigger, start a planning round (deadlock safeguard and supervision of running workers). Omitted or 0 = default 600 (10min);"},
-			"seed_first_intent":      map[string]any{"type": "boolean", "description": "Optional: enable for simple tasks to issue a seed intent on creation (content = description + goal), allowing the worker to begin testing without waiting for the first planner round; default false (standard plan-then-execute flow)."},
+			"seed_first_intent":      map[string]any{"type": "boolean", "description": "Optional: enable for simple tasks to issue a seed intent on creation (content = name + description + goal), allowing the worker to begin testing without waiting for the first planner round; default false (standard plan-then-execute flow)."},
 		}, "description", "goal"),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			var a struct {
+				Name                 string          `json:"name"`
 				Description          string          `json:"description"`
 				Goal                 string          `json:"goal"`
 				ParentRef            string          `json:"parent_ref"`
 				SourceTaskIDs        []string        `json:"source_task_ids"`
 				LLMProfileID         json.RawMessage `json:"llm_profile_id"`
+				ThinkingEffort       string          `json:"thinking_effort"`
 				TimeoutSeconds       int             `json:"timeout_seconds"`
 				PlanHeartbeatSeconds int             `json:"plan_heartbeat_seconds"`
 				SeedFirstIntent      bool            `json:"seed_first_intent"`
 			}
 			_ = json.Unmarshal(in, &a)
-			if strings.TrimSpace(a.Description) == "" {
-				a.Description = "Untitled Task"
-			}
+			a.Name = strings.TrimSpace(a.Name)
 			if strings.TrimSpace(a.Goal) == "" {
 				return actool.Errorf("goal is required"), nil
 			}
 			if a.TimeoutSeconds < 0 {
 				a.TimeoutSeconds = 0
+			}
+			switch a.ThinkingEffort {
+			case "":
+				a.ThinkingEffort = ThinkingEffortMax
+			case ThinkingEffortMax, ThinkingEffortAuto:
+			default:
+				return actool.Errorf(`thinking_effort must be "auto" or "max"`), nil
 			}
 			// 只读继承来源任务：数量上限 + 每个 id 有效/去重/存在，校验规则与 HTTP 建任务一致。
 			if len(a.SourceTaskIDs) > db.MaxTaskSourceCount {
@@ -306,8 +315,10 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 				llmIDs = []int64{*pin}
 			}
 			t, err := s.m.CreateTaskWithOptions(a.Description, a.Goal, db.TaskCreateOptions{
+				Name:                 a.Name,
 				SourceTaskIDs:        sourceIDs,
 				LLMProfileIDs:        llmIDs,
+				ThinkingEffort:       a.ThinkingEffort,
 				TimeoutSeconds:       a.TimeoutSeconds,
 				PlanHeartbeatSeconds: a.PlanHeartbeatSeconds,
 			})
@@ -323,7 +334,7 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 			// 共享的建后流程,与 HTTP 建任务(server.go createTask)复用同一段 launchTask:
 			// seed + 后台可见地做目标分解(第0轮/LLM步骤/逐条goal) + engine.Run。
 			// seed_first_intent 默认 false(标准先规划再执行);简单任务可开启直接下发一 work 测试。
-			s.launchTask(t, a.Description+" "+a.Goal, a.SeedFirstIntent)
+			s.launchTask(t, a.SeedFirstIntent)
 			return actool.Text(fmt.Sprintf("task created: %s", t.ID)), nil
 		})
 }
@@ -487,6 +498,7 @@ func (s *Server) seedOrchestrationTools() {
 		_ = s.m.PG().SeedTool(t.Name(), t.Description(), schema, autoAgents)
 	}
 	s.refreshBuiltinToolSchemas()
+	s.refreshSpawnTaskSchema()
 	s.seedAutoDefaultBindings()
 	s.seedPlannerDefaultBindings()
 	s.seedPlannerListAssetsBinding()
@@ -512,7 +524,6 @@ func (s *Server) seedOrchestrationTools() {
 // orchestration + platform tools into already-seeded rows ONCE per version flag —
 // SeedTool is first-insert-only, so a new param (e.g. spawn_task 的 llm_profile) never
 // reaches an old DB otherwise. Preserves each tool's agent binding + enabled flag.
-// Bump the flag whenever these tools' schemas/descriptions change in code.
 func (s *Server) refreshBuiltinToolSchemas() {
 	const flag = "tool_schema_refresh_v7_list_facts_paging"
 	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
@@ -520,6 +531,9 @@ func (s *Server) refreshBuiltinToolSchemas() {
 	}
 	tools := append(s.orchestrationTools(), s.platformTools()...)
 	for _, t := range tools {
+		if t.Name() == "spawn_task" {
+			continue
+		}
 		schema, _ := json.Marshal(t.InputSchema())
 		if err := s.m.pg.RefreshToolDefaults(t.Name(), t.Description(), schema); err != nil {
 			log.Printf("[tools] refresh %s schema failed: %v", t.Name(), err)
@@ -544,6 +558,33 @@ func (s *Server) refreshBuiltinToolSchemas() {
 	}
 	_ = s.m.pg.SetSetting(flag, "true")
 	log.Printf("[tools] Refreshed orchestration/platform tool schemas to code defaults (one-time)")
+}
+
+func (s *Server) refreshSpawnTaskSchema() {
+	const flag = "tool_schema_refresh_v11_spawn_optional_name"
+	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
+		return
+	}
+	tool := s.toolSpawnTask()
+	schema, err := json.Marshal(tool.InputSchema())
+	if err != nil {
+		log.Printf("[tools] refresh spawn_task schema failed: %v", err)
+		return
+	}
+	var key string
+	if err := s.m.pg.QueryRow(`UPDATE tools SET schema=schema || jsonb_build_object(
+  'properties', ($2::jsonb->'properties') || CASE
+    WHEN schema #>> '{properties,description,description}' = 'Task description (short title)'
+    THEN jsonb_set(schema->'properties', '{description,description}', $2::jsonb #> '{properties,description,description}')
+    ELSE COALESCE(schema->'properties','{}'::jsonb) END,
+  'required', COALESCE(schema->'required','[]'::jsonb) - 'name'
+), updated_at=now() WHERE key=$1 AND system RETURNING key`, tool.Name(), string(schema)).Scan(&key); err != nil {
+		log.Printf("[tools] refresh spawn_task schema failed: %v", err)
+		return
+	}
+	if err := s.m.pg.SetSetting(flag, "true"); err != nil {
+		log.Printf("[tools] record spawn_task schema refresh failed: %v", err)
+	}
 }
 
 // unbindGoalMetDefault removes goal_met's default "planner" binding ONCE (guarded by
