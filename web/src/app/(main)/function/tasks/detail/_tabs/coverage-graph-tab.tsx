@@ -11,7 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { api } from "@/lib/api";
-import { observeGraphTheme, readGraphTheme } from "@/lib/graph-theme";
+import { type GraphTheme, observeGraphTheme, readGraphTheme } from "@/lib/graph-theme";
 import type { CoverageAssetRef, CoverageAssetRefs, CoverageGraphEdge, CoverageGraphNode } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -228,13 +228,12 @@ function toG6Nodes(renderNodes: RenderNode[]): G6NodeDatum[] {
 const nd = (d: unknown) => d as G6NodeDatum;
 
 // 已测=实色高亮；范围内未测=灰；范围外/折叠=更淡的灰 + 虚线描边。
-function nodeFill(d: G6NodeDatum, colors: ReturnType<typeof readGraphTheme>): string {
-  if (d.fold) return colors.muted;
-  if (!d.inScope) return colors.background;
-  if (d.tested) return kindMeta[d.kind].hex;
+function nodeFill(d: G6NodeDatum, colors: GraphTheme): string {
+  if (!d.fold && !d.inScope) return colors.background;
+  if (!d.fold && d.tested) return kindMeta[d.kind].hex;
   return colors.muted;
 }
-function nodeStroke(d: G6NodeDatum, colors: ReturnType<typeof readGraphTheme>): string {
+function nodeStroke(d: G6NodeDatum, colors: GraphTheme): string {
   if (d.fold || !d.inScope) return colors.mutedForeground;
   if (d.tested) return kindMeta[d.kind].hex;
   return colors.ring;
