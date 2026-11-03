@@ -255,7 +255,7 @@ export const api = {
     categoryId?: number;
     description: string;
     goal: string;
-    thinkingEffort?: "auto" | "max";
+    thinkingEffort: "auto" | "max";
     llmProfileIds?: number[];
     sourceTaskIds?: string[];
     companyIds?: number[];
@@ -270,7 +270,7 @@ export const api = {
       category_id: input.categoryId ?? null,
       description: input.description,
       goal: input.goal,
-      thinking_effort: input.thinkingEffort ?? "max",
+      thinking_effort: input.thinkingEffort,
       llm_profile_ids: input.llmProfileIds ?? [],
       source_task_ids: input.sourceTaskIds ?? [],
       company_ids: input.companyIds ?? [],

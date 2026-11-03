@@ -70,12 +70,12 @@ func TestResolvedEffortConfig(t *testing.T) {
 		t.Fatalf("auto config = %+v, want provider-default thinking on chosen model", auto)
 	}
 	max := resolvedEffortConfig(base, ThinkingEffortMax)
-	if max.ThinkingType != "enabled" || max.ReasoningEffort != "max" || max.Model != base.Model {
-		t.Fatalf("max config = %+v, want max effort on chosen model", max)
+	if max != base {
+		t.Fatalf("max config = %+v, want selected profile config %+v", max, base)
 	}
-	disabled := resolvedEffortConfig(agent.Config{ThinkingType: "disabled", ReasoningEffort: "high"}, ThinkingEffortMax)
-	if disabled.ThinkingType != "" || disabled.ReasoningEffort != "max" {
-		t.Fatalf("disabled profile max config = %+v, want max effort without disabled thinking", disabled)
+	disabledBase := agent.Config{ThinkingType: "disabled", ReasoningEffort: "high"}
+	if disabled := resolvedEffortConfig(disabledBase, ThinkingEffortMax); disabled != disabledBase {
+		t.Fatalf("disabled profile max config = %+v, want selected profile config %+v", disabled, disabledBase)
 	}
 	if legacy := resolvedEffortConfig(base, ""); legacy != base {
 		t.Fatalf("legacy config = %+v, want unchanged %+v", legacy, base)
@@ -85,14 +85,18 @@ func TestResolvedEffortConfig(t *testing.T) {
 func TestResolvedEffortWire(t *testing.T) {
 	srv, requests := effortWireServer(t)
 	defer srv.Close()
-	base := agent.Config{Format: llm.FormatOpenAIResponses, BaseURL: srv.URL, APIKey: "test-key", Model: "wire-model", ThinkingType: "enabled", ReasoningEffort: "high"}
+	base := agent.Config{Format: llm.FormatOpenAIResponses, BaseURL: srv.URL, APIKey: "test-key", Model: "gpt-5.1", ThinkingType: "enabled", ReasoningEffort: "high"}
 	for _, effort := range []string{ThinkingEffortAuto, ThinkingEffortMax} {
 		cfg := resolvedEffortConfig(base, effort)
 		prov, err := cfg.NewProvider()
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertEffortWire(t, effortWireRequest(t, prov, requests), "wire-model", effort)
+		wireEffort := effort
+		if effort == ThinkingEffortMax {
+			wireEffort = base.ReasoningEffort
+		}
+		assertEffortWire(t, effortWireRequest(t, prov, requests), base.Model, wireEffort)
 	}
 }
 
@@ -156,5 +160,5 @@ func TestTaskEffortRoutingAcrossBindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertEffortWire(t, effortWireRequest(t, selection.provider, requests), "chain-model", ThinkingEffortMax)
+	assertEffortWire(t, effortWireRequest(t, selection.provider, requests), "chain-model", "high")
 }

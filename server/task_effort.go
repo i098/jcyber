@@ -68,15 +68,9 @@ func (v *profileEffortView) Complete(ctx context.Context, req llm.CompletionRequ
 }
 
 func resolvedEffortConfig(cfg agent.Config, effort string) agent.Config {
-	switch effort {
-	case ThinkingEffortAuto:
+	if effort == ThinkingEffortAuto {
 		cfg.ThinkingType = ""
 		cfg.ReasoningEffort = ""
-	case ThinkingEffortMax:
-		if cfg.ThinkingType == "disabled" {
-			cfg.ThinkingType = ""
-		}
-		cfg.ReasoningEffort = ThinkingEffortMax
 	}
 	return cfg
 }

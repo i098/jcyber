@@ -3378,14 +3378,14 @@ function CreateTaskSheet({
               <FieldLabel htmlFor="thinking-effort">Thinking Effort</FieldLabel>
               <Select
                 value={thinkingEffort}
-                onValueChange={(value) => setThinkingEffort(value === "auto" ? "auto" : "max")}
+                onValueChange={(value) => setThinkingEffort(value as "auto" | "max")}
               >
                 <SelectTrigger id="thinking-effort" className="w-full sm:w-64">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    <SelectItem value="max">Max - hard tasks</SelectItem>
+                    <SelectItem value="max">Max - configured profile effort</SelectItem>
                     <SelectItem value="auto">Auto - provider default</SelectItem>
                   </SelectGroup>
                 </SelectContent>

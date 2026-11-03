@@ -181,15 +181,15 @@ const TOOLS: Record<string, ToolDef> = {
     },
   },
   create_task: {
-    description: "Create a new jcyber task targeting a domain/host. Each target gets its own task. Set name to the short display title; description is separate long-form context, never the task name. Include a clear goal. Set thinking_effort to auto for easy jobs or max for hard ones. Returns the new task id.",
+    description: "Create a new jcyber task targeting a domain/host. Each target gets its own task. Set name to the short display title; description is separate long-form context, never the task name. Include a clear goal. Set thinking_effort to auto for easy jobs or max to keep the selected profile's configured effort for hard ones. Returns the new task id.",
     parameters: {
       type: "object",
       properties: {
         name: { type: "string", description: "Task display name/title, e.g. 'example.com scan'. Put the task name here, not in description." },
         goal: { type: "string", description: "What to do against the target" },
         description: { type: "string", description: "Optional long-form task context/instructions, separate from the display name." },
-        llm_profile_id: { type: "number", description: "Optional explicit LLM profile id; usually omit so the pool rotates codex/deepseek/kimi" },
-        thinking_effort: { type: "string", enum: ["max", "auto"], description: "Reasoning effort for this task: omit or 'max' for hard targets (the pool runs max thinking), 'auto' for easy/quick jobs so the provider picks a cheaper default effort." },
+        llm_profile_id: { type: "number", description: "Optional explicit LLM profile id." },
+        thinking_effort: { type: "string", enum: ["max", "auto"], description: "Reasoning effort for this task: omit or 'max' to use the selected profile's configured effort, 'auto' to use the provider default." },
       },
       required: ["name", "goal"],
     },
