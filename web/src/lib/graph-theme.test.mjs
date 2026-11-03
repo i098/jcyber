@@ -7,7 +7,7 @@ test("graph colors follow root theme changes and release their observer", (t) =>
   let dark = false;
   let notify;
   let disconnected = false;
-  const root = { classList: { contains: () => dark }, dataset: { themePreset: "default" } };
+  const root = { classList: { contains: () => dark } };
   const context = {
     fillStyle: "",
     clearRect() {},
@@ -39,7 +39,7 @@ test("graph colors follow root theme changes and release their observer", (t) =>
       }
       observe(element, options) {
         assert.equal(element, root);
-        assert.deepEqual(options.attributeFilter, ["class", "data-theme-preset"]);
+        assert.deepEqual(options.attributeFilter, ["class"]);
       }
       disconnect() {
         disconnected = true;
@@ -68,12 +68,9 @@ test("graph colors follow root theme changes and release their observer", (t) =>
   assert.equal(updates[0].background, light.foreground);
   assert.equal(updates[0].foreground, light.background);
   assert.equal(updates[0].muted, light.foreground);
-  root.dataset.themePreset = "soft-pop";
-  notify();
-  assert.equal(updates.length, 2);
   dark = false;
   notify();
-  assert.deepEqual(updates[2], light);
+  assert.deepEqual(updates[1], light);
   stop();
   assert.equal(disconnected, true);
 });

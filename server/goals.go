@@ -17,6 +17,15 @@ type goalSpec struct {
 	VulnClass string
 }
 
+func taskExecutionContext(t *Task) string {
+	name := strings.TrimSpace(t.lifecycleSnapshot().Name)
+	description := strings.TrimSpace(t.Description)
+	if name == "" || name == description {
+		return description
+	}
+	return strings.TrimSpace(name + " " + description)
+}
+
 // launchTask runs the shared post-creation sequence for a task created via ANY
 // path (HTTP createTask 或 orchestration spawn_task),避免两处复制粘贴:
 //  1. seed 根资产,喂给事件驱动 loop;
@@ -25,11 +34,11 @@ type goalSpec struct {
 //     分解完再 engine.Run —— 引擎在 goal 节点就绪后才启动,避免 planner 抢在 goal 之前跑的竞态。
 //
 // 异步(goroutine)所以调用方立即返回,两条路径行为一致:秒建任务、后台拆目标。
-func (s *Server) launchTask(t *Task, seedText string, seedFirstIntent bool) {
+func (s *Server) launchTask(t *Task, seedFirstIntent bool) {
 	if !s.engine.beginTaskOperation(t.ID) {
 		return
 	}
-	s.seed(t, seedText)
+	s.seed(t, taskExecutionContext(t)+" "+t.Goal)
 	if seedFirstIntent {
 		s.seedFirstIntent(t)
 	}
@@ -384,7 +393,7 @@ func (s *Server) createGoals(ctx context.Context, t *Task, emit func(db.Activity
 	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
 	s.engine.BeginLLMCall(t.ID)
 	goalRuntime := s.agentsForTask(t).runtime
-	decomposed := agent.DecomposeGoalsWithProvider(ctx, goalRuntime, s.m.dir, t.Goal, t.Description, as, t.Store, taskID, goalRuntime.nonStreaming(), goalRuntime.maxTokens(), emit)
+	decomposed := agent.DecomposeGoalsWithProvider(ctx, goalRuntime, s.m.dir, t.Goal, taskExecutionContext(t), as, t.Store, taskID, goalRuntime.nonStreaming(), goalRuntime.maxTokens(), emit)
 	s.engine.EndLLMCall(t.ID)
 	for _, g := range decomposed {
 		if strings.TrimSpace(g.Text) != "" {

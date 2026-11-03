@@ -180,6 +180,80 @@ func TestGlobalAutoEffortUsesAppliedConfig(t *testing.T) {
 	}
 }
 
+func TestApplyLLMInvalidatesStaleGlobalAutoProvider(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v)", err)
+	}
+	defer m.Close()
+	srv, requests := effortWireServer(t)
+	defer srv.Close()
+	previous, err := m.pg.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := &db.LLMProfile{
+		Name: fmt.Sprintf("effort-update-%d", time.Now().UnixNano()), Format: "openai-responses",
+		BaseURL: srv.URL, Model: "old-model", APIKey: "test-key", ReasoningEffort: "high", Streaming: true,
+	}
+	id, err := m.pg.SaveProfile(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if previous != nil {
+			_ = m.pg.SetActiveProfile(previous.ID)
+		} else {
+			_, _ = m.pg.Exec(`UPDATE llm_profiles SET is_default=false WHERE id=$1`, id)
+		}
+		_ = m.pg.DeleteProfile(id)
+	}()
+	if err := m.pg.SetActiveProfile(id); err != nil {
+		t.Fatal(err)
+	}
+	poolEnabled := m.LLMPoolEnabled()
+	if err := m.SetLLMPoolEnabled(false); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.SetLLMPoolEnabled(poolEnabled) }()
+	s := &Server{m: m, llmHealth: newLLMHealthRegistry(m.pg)}
+	oldConfig, ok := s.loadLLMConfig()
+	if !ok {
+		t.Fatal("old profile unavailable")
+	}
+	if err := s.applyLLM(oldConfig); err != nil {
+		t.Fatal(err)
+	}
+	profile.ID, profile.Model = id, "new-model"
+	if _, err := m.pg.SaveProfile(profile); err != nil {
+		t.Fatal(err)
+	}
+	s.invalidateProfileAgents()
+	_, staleConfig, ok := s.globalProviderForEffort(ThinkingEffortAuto)
+	if !ok || staleConfig.Model != "old-model" {
+		t.Fatalf("pre-reapply auto config = %+v, available = %v; want old applied model", staleConfig, ok)
+	}
+	newConfig, ok := s.loadLLMConfig()
+	if !ok {
+		t.Fatal("new profile unavailable")
+	}
+	if err := s.applyLLM(newConfig); err != nil {
+		t.Fatal(err)
+	}
+	s.provCacheMu.Lock()
+	oldGeneration := s.provCacheGen
+	s.provCacheMu.Unlock()
+	s.resetGlobalAutoProvider()
+	if _, _, ok := s.environmentProviderForEffort(oldConfig, ThinkingEffortAuto, &oldGeneration); ok {
+		t.Fatal("stale auto provider built after cache generation changed")
+	}
+	provider, cfg, ok := s.globalProviderForEffort(ThinkingEffortAuto)
+	if !ok || cfg.Model != "new-model" {
+		t.Fatalf("post-reapply auto config = %+v, available = %v; want new applied model", cfg, ok)
+	}
+	assertEffortWire(t, effortWireRequest(t, provider, requests), "new-model", ThinkingEffortAuto)
+}
+
 func TestTaskEffortRoutingAcrossBindings(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {

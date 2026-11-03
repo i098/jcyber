@@ -439,7 +439,7 @@ func (s *Server) applyLLM(cfg agent.Config) error {
 	if prov == nil {
 		s.resetEnvironmentEffortProviders()
 		var ok bool
-		prov, _, ok = s.environmentProviderForEffort(cfg, "")
+		prov, _, ok = s.environmentProviderForEffort(cfg, "", nil)
 		if !ok {
 			return fmt.Errorf("provider init failed for %s / %s", cfg.Provider(), cfg.Model)
 		}
@@ -473,9 +473,13 @@ func (s *Server) applyLLM(cfg agent.Config) error {
 	s.chatAgent.SetNonStreaming(nonStreamingResolver(cfg))
 	s.chatAgent.SetMaxTokens(maxTokensResolver(cfg))
 	s.chatAgent.SetNoaEnabled(s.m.NoaCompactionEnabled) // 实验功能:noa 上下文压缩(每 run 读)
+	configChanged := !s.llmOn || s.llmCfg != cfg
 	s.llmProv = prov
 	s.llmCfg = cfg
 	s.llmOn = true
+	if configChanged {
+		s.resetGlobalAutoProvider()
+	}
 	s.cfgMu.Unlock()
 	s.invalidateTaskAgents()
 
@@ -1420,7 +1424,7 @@ type createTaskReq struct {
 	CompanyIDs           []int64  `json:"company_ids,omitempty"`       // 关联企业范围并快照关联当前企业资产;不复制资产或强制生成意图
 	TimeoutSeconds       int      `json:"timeout_seconds"`             // 任务级超时(秒);0/省略=不限时
 	PlanHeartbeatSeconds int      `json:"plan_heartbeat_seconds"`      // planner 心跳触发间隔(秒);0/省略=默认600(10min);下限=默认=600,低于自动抬到600
-	SeedFirstIntent      *bool    `json:"seed_first_intent,omitempty"` // 创建时直接下发一条种子意图(内容=描述+目标),让 worker 免等首轮 planner 直接开跑;省略/null=默认关闭,走标准先规划再执行。显式传 true 才开(CTF 常一 work 解决时可省掉开跑前的 planner 轮)。
+	SeedFirstIntent      *bool    `json:"seed_first_intent,omitempty"` // 创建时直接下发一条种子意图,让 worker 免等首轮 planner 直接开跑;省略/null=默认关闭,走标准先规划再执行。显式传 true 才开(CTF 常一 work 解决时可省掉开跑前的 planner 轮)。
 	CoverageEnabled      *bool    `json:"coverage_enabled,omitempty"`  // 资产覆盖度功能;省略/null=默认开(true)。false=关闭覆盖度计算/展示/自动累积范围+隐藏 add_task_scope/list_untested_assets。company 关联不受影响。
 	ThinkingEffort       string   `json:"thinking_effort,omitempty"`
 	// InterceptRules 任务级资产拦截/允许规则(创建时录入,存 task_intercept_rules,不进全局表)。
@@ -1507,7 +1511,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[task] New Task #%s «%s» goal: %s", t.ID, req.Description, req.Goal)
 	// 共享的建后流程(seed + 种子意图 + 后台目标分解 + engine.Run),与 spawn_task 复用同一段。
 	// launchTask 内部异步,不阻塞 UI —— 目标分解在后台可见地进行。
-	s.launchTask(t, req.Description+" "+req.Goal, req.SeedFirstIntent != nil && *req.SeedFirstIntent)
+	s.launchTask(t, req.SeedFirstIntent != nil && *req.SeedFirstIntent)
 	writeJSON(w, 201, taskDTO(t, s.resolvedTaskStatus(t)))
 }
 
@@ -1668,7 +1672,7 @@ func (s *Server) seed(t *Task, text string) {
 			rootID, _ = as.UpsertRootDomain(db.UpsertRootDomainReq{Domain: host, TaskID: taskID})
 		}
 		if rootID > 0 {
-			_ = as.SetTaskAssetSource(taskID, rootID, "task", "Initialized from task description or goal", nil)
+			_ = as.SetTaskAssetSource(taskID, rootID, "task", "Initialized from task name, description, or goal", nil)
 		}
 	}
 	// anchor the seeded assets to this task's begin root as lineage/provenance
@@ -1684,13 +1688,13 @@ func (s *Server) seed(t *Task, text string) {
 	// 消费掉而绕过 Run 的门控 → 种子任务仍误触发首轮。
 }
 
-// seedFirstIntent writes ONE open intent (summary = 描述+目标) into the task's
+// seedFirstIntent writes ONE open intent into the task's
 // frontier at creation, so a worker can claim and run it immediately without first
 // waiting a planner round. Mirrors a planner top-level intent: it links from the
 // origin fact (RelDerivedFrom) so it still traces back to a fact node. Best-effort —
 // a failure just falls back to the normal planner-driven flow.
 func (s *Server) seedFirstIntent(t *Task) {
-	summary := fmt.Sprintf("Complete task goal: %s (task: %s)", t.Goal, t.Description)
+	summary := fmt.Sprintf("Complete task goal: %s (task: %s)", t.Goal, taskExecutionContext(t))
 	id, err := t.Store.AddIntent(map[string]any{"summary": summary}, 8, nil, "seed")
 	if err != nil {
 		log.Printf("[seed] task %s: failed to issue seed intent: %v", t.ID, err)

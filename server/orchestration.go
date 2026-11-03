@@ -333,7 +333,7 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 			// 共享的建后流程,与 HTTP 建任务(server.go createTask)复用同一段 launchTask:
 			// seed + 后台可见地做目标分解(第0轮/LLM步骤/逐条goal) + engine.Run。
 			// seed_first_intent 默认 false(标准先规划再执行);简单任务可开启直接下发一 work 测试。
-			s.launchTask(t, a.Description+" "+a.Goal, a.SeedFirstIntent)
+			s.launchTask(t, a.SeedFirstIntent)
 			return actool.Text(fmt.Sprintf("task created: %s", t.ID)), nil
 		})
 }
