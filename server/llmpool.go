@@ -168,15 +168,13 @@ func (s *Server) poolForActiveEffort(activeID int64, prov llm.Provider, cfg agen
 // are on; otherwise a bound profile stays exclusive (fails hard), which is the
 // default and the documented precedence.
 func (s *Server) poolForBinding(id int64, prov llm.Provider, cfg agent.Config) llm.Provider {
-	return s.poolForBindingEffort(id, prov, cfg, "")
+	return s.poolForBindingEffortLocked(id, prov, cfg, "")
 }
 
-func (s *Server) poolForBindingEffort(id int64, prov llm.Provider, cfg agent.Config, effort string) llm.Provider {
+func (s *Server) poolForBindingEffortLocked(id int64, prov llm.Provider, cfg agent.Config, effort string) llm.Provider {
 	if s.m == nil || !s.m.LLMPoolEnabled() || !s.m.LLMPoolBindFallback() {
 		return prov
 	}
-	s.profileReapplyMu.RLock()
-	defer s.profileReapplyMu.RUnlock()
 	if pool := s.poolChain(id, prov, cfg, effort); pool != nil {
 		return pool
 	}

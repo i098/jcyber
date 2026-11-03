@@ -244,7 +244,8 @@ func TestGlobalAutoEffortDoesNotAttributeOldConfigToNewActiveProfile(t *testing.
 		t.Fatal(err)
 	}
 	s.resetGlobalAutoProvider()
-	s.invalidateProfileAgentInstances()
+	s.invalidateProfileChatAgents()
+	s.invalidateTaskAgents()
 	provider, autoCfg, ok := s.globalProviderForEffort(ThinkingEffortAuto)
 	if !ok || autoCfg.Model != "old-model" {
 		t.Fatalf("auto config = %+v, available = %v; want old applied model", autoCfg, ok)

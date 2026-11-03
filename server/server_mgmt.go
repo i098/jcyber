@@ -1947,13 +1947,21 @@ func (s *Server) pgActivateProfile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	s.profileReapplyMu.Lock()
+	rebuildTaskAgents := false
+	defer func() {
+		s.profileReapplyMu.Unlock()
+		if rebuildTaskAgents {
+			s.invalidateTaskAgents()
+		}
+	}()
 	if err := pg.SetActiveProfile(body.ID); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.resetGlobalAutoProvider()
-	s.invalidateProfileAgentInstances() // active change may affect pinned-task fallbacks
-	s.reapplyActiveProfile()            // switch the running engine to the newly activated profile
+	rebuildTaskAgents = true
+	s.invalidateProfileChatAgents()
+	s.reapplyActiveProfileWithoutTaskAgentInvalidation()
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 

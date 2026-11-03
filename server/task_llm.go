@@ -496,15 +496,17 @@ func (s *Server) agentBindingProvider(agentKey string) (llm.Provider, agent.Conf
 }
 
 func (s *Server) agentBindingProviderEffort(agentKey, effort string) (llm.Provider, agent.Config, bool) {
+	s.profileReapplyMu.RLock()
+	defer s.profileReapplyMu.RUnlock()
 	id := s.effectiveProfileForAgent(agentKey, nil)
 	if id == nil {
 		return nil, agent.Config{}, false
 	}
-	prov, cfg, ok := s.providerForProfileEffort(*id, effort)
+	prov, cfg, ok := s.providerForProfileEffortUnlocked(*id, effort)
 	if !ok {
 		return nil, agent.Config{}, false
 	}
-	return s.poolForBindingEffort(*id, prov, cfg, effort), cfg, true
+	return s.poolForBindingEffortLocked(*id, prov, cfg, effort), cfg, true
 }
 
 // globalProvider returns the process-wide provider (persisted active profile or

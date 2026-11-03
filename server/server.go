@@ -601,13 +601,15 @@ func (s *Server) providerForProfile(id int64) (llm.Provider, agent.Config, bool)
 // chatAgentForProfile returns a ChatAgent built from a specific LLM profile, cached
 // per profile id. Returns nil if the profile is missing or has no API key.
 func (s *Server) chatAgentForProfile(id int64) *agent.ChatAgent {
+	s.profileReapplyMu.RLock()
+	defer s.profileReapplyMu.RUnlock()
 	s.profMu.Lock()
 	cached := s.profChatAgents[id]
 	s.profMu.Unlock()
 	if cached != nil {
 		return cached
 	}
-	prov, cfg, ok := s.providerForProfile(id)
+	prov, cfg, ok := s.providerForProfileEffortUnlocked(id, "")
 	if !ok {
 		return nil
 	}
@@ -640,9 +642,7 @@ func (s *Server) invalidateProfileAgents() {
 }
 
 func (s *Server) invalidateProfileCaches() {
-	s.profMu.Lock()
-	s.profChatAgents = map[int64]*agent.ChatAgent{}
-	s.profMu.Unlock()
+	s.invalidateProfileChatAgents()
 	s.provCacheMu.Lock()
 	s.provCacheGen++
 	s.provByProfile = map[int64]*provEntry{}
@@ -652,11 +652,10 @@ func (s *Server) invalidateProfileCaches() {
 	s.provCacheMu.Unlock()
 }
 
-func (s *Server) invalidateProfileAgentInstances() {
+func (s *Server) invalidateProfileChatAgents() {
 	s.profMu.Lock()
 	s.profChatAgents = map[int64]*agent.ChatAgent{}
 	s.profMu.Unlock()
-	s.invalidateTaskAgents()
 }
 
 func (s *Server) chatAgentRef() *agent.ChatAgent {
