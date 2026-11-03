@@ -243,7 +243,7 @@ func (s *Server) globalProviderForEffort(effort string) (llm.Provider, agent.Con
 		return s.globalProvider()
 	}
 	s.cfgMu.Lock()
-	on := s.llmOn
+	on, baseCfg := s.llmOn, s.llmCfg
 	s.cfgMu.Unlock()
 	if !on {
 		return nil, agent.Config{}, false
@@ -257,20 +257,17 @@ func (s *Server) globalProviderForEffort(effort string) (llm.Provider, agent.Con
 	s.provCacheMu.Unlock()
 	var prov llm.Provider
 	var cfg agent.Config
+	var activeID int64
 	if s.m != nil && s.m.pg != nil {
 		if p, err := s.m.pg.ActiveProfile(); err == nil && p != nil {
-			var ok bool
-			prov, cfg, ok = s.providerForProfileEffort(p.ID, effort)
-			if ok {
-				prov = s.poolForActiveEffort(p.ID, prov, cfg, effort)
+			activeID = p.ID
+			if s.profileConfigMatches(p.ID, baseCfg) {
+				prov, cfg, _ = s.providerForProfileEffort(p.ID, effort)
 			}
 		}
 	}
 	if prov == nil {
-		s.cfgMu.Lock()
-		on, baseCfg := s.llmOn, s.llmCfg
-		s.cfgMu.Unlock()
-		if !on || s.m == nil {
+		if s.m == nil {
 			return nil, agent.Config{}, false
 		}
 		var ok bool
@@ -278,6 +275,9 @@ func (s *Server) globalProviderForEffort(effort string) (llm.Provider, agent.Con
 		if !ok {
 			return nil, agent.Config{}, false
 		}
+	}
+	if activeID != 0 {
+		prov = s.poolForActiveEffort(activeID, prov, cfg, effort)
 	}
 	s.provCacheMu.Lock()
 	if generation != s.provCacheGen {

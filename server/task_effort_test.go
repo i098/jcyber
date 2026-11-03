@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -110,6 +111,72 @@ func TestMaxEffortUsesGlobalProvider(t *testing.T) {
 	_, _, _, err := provider.Complete(context.Background(), llm.CompletionRequest{})
 	if err != nil || direct.calls != 1 {
 		t.Fatalf("global provider calls = %d, error = %v; want one call without error", direct.calls, err)
+	}
+}
+
+func TestGlobalAutoEffortUsesAppliedConfig(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v)", err)
+	}
+	defer m.Close()
+	srv, requests := effortWireServer(t)
+	defer srv.Close()
+	previous, err := m.pg.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileID, err := m.pg.SaveProfile(&db.LLMProfile{
+		Name: fmt.Sprintf("effort-global-%d", time.Now().UnixNano()), Format: "openai-responses",
+		BaseURL: srv.URL, Model: "gpt-5.1", APIKey: "test-key", ReasoningEffort: "high",
+		Streaming: false, MaxTokens: 4096, RatePerMinute: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if previous != nil {
+			_ = m.pg.SetActiveProfile(previous.ID)
+		} else {
+			_, _ = m.pg.Exec(`UPDATE llm_profiles SET is_default=false WHERE id=$1`, profileID)
+		}
+		_ = m.pg.DeleteProfile(profileID)
+	}()
+	if err := m.pg.SetActiveProfile(profileID); err != nil {
+		t.Fatal(err)
+	}
+	poolEnabled := m.LLMPoolEnabled()
+	if err := m.SetLLMPoolEnabled(false); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.SetLLMPoolEnabled(poolEnabled) }()
+
+	applied := agent.ConfigFrom("openai-responses", "gpt-5.1", srv.URL, "test-key", "")
+	applied.ReasoningEffort = "high"
+	applied.RatePerMinute = 1
+	s := &Server{m: m, llmHealth: newLLMHealthRegistry(m.pg)}
+	if err := s.applyLLM(applied); err != nil {
+		t.Fatal(err)
+	}
+	maxProvider, _, ok := s.globalProviderForEffort(ThinkingEffortMax)
+	if !ok {
+		t.Fatal("max effort did not resolve applied provider")
+	}
+	autoProvider, autoCfg, ok := s.globalProviderForEffort(ThinkingEffortAuto)
+	if !ok || autoCfg.Stream != applied.Stream || autoCfg.MaxTokens != applied.MaxTokens {
+		t.Fatalf("auto config = %+v, available = %v; want applied streaming and output limit", autoCfg, ok)
+	}
+	assertEffortWire(t, effortWireRequest(t, maxProvider, requests), applied.Model, applied.ReasoningEffort)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	_, _, _, err = autoProvider.Complete(ctx, llm.CompletionRequest{})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("auto provider did not share max provider's rate limit: %v", err)
+	}
+	select {
+	case request := <-requests:
+		t.Fatalf("auto provider sent a second request before rate limit: %v", request)
+	default:
 	}
 }
 
