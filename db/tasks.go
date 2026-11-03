@@ -181,12 +181,20 @@ func (d *DB) CreateTaskWithOptions(description, goal string, opts TaskCreateOpti
 		return nil, err
 	}
 	// origin fact: the exploration graph's root, a KindFact node (state='origin')
-	// holding the original task description. Goals/intents/findings descend from
+	// holding the creation name, description, and goal. Goals/intents/findings descend from
 	// it, and the seeded target asset is anchored to it as lineage (the asset graph
 	// is global and shared, not isolated per task). Being a fact (not a special 'begin' kind) lets every
 	// intent uniformly connect to a fact node, including the first ones.
+	summary := "Task starting point"
+	if opts.Name != "" {
+		summary += ": " + opts.Name
+	}
+	if description != "" {
+		summary += "; description: " + description
+	}
+	summary += "; goal: " + goal
 	originPayload, _ := json.Marshal(map[string]any{
-		"summary":       "Task starting point: " + description + "; goal: " + goal,
+		"summary":       summary,
 		"creation_name": opts.Name,
 		"description":   description,
 		"goal":          goal,

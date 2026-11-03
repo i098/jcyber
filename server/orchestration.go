@@ -271,9 +271,6 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 			if a.Name == "" {
 				return actool.Errorf("name is required"), nil
 			}
-			if strings.TrimSpace(a.Description) == "" {
-				a.Description = "Untitled Task"
-			}
 			if strings.TrimSpace(a.Goal) == "" {
 				return actool.Errorf("goal is required"), nil
 			}

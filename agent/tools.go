@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"pta/db"
 	acperm "normasdk/permission"
 	actool "normasdk/tool"
+	"pta/db"
 )
 
 // compactIntents distills intents to {id, summary, state, asset_ids, parents,
@@ -510,7 +510,21 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 	// the original task (root) so the planner always has it, not just the
 	// decomposed goals.
 	if description, goal, err := t.ts.Root(); err == nil {
-		out["task"] = map[string]any{"description": description, "goal": goal}
+		task := map[string]any{"goal": goal}
+		if origin, err := t.ts.OriginFactID(); err == nil && origin > 0 {
+			if node, err := t.ts.GetNode(origin); err == nil && node != nil {
+				var payload struct {
+					CreationName string `json:"creation_name"`
+				}
+				if json.Unmarshal(node.Payload, &payload) == nil && payload.CreationName != "" {
+					task["creation_name"] = payload.CreationName
+				}
+			}
+		}
+		if description != "" {
+			task["description"] = description
+		}
+		out["task"] = task
 	}
 	// Direct source tasks are a live, read-only blackboard view. Keep their
 	// summaries in a separate field so their intents never enter this task's

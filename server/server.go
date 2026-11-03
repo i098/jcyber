@@ -99,7 +99,6 @@ type Server struct {
 	provByEffort   map[effortProfileKey]*provEntry
 	provShared     map[int64]*profileEffortRouter
 	globalByEffort map[string]*provEntry
-	provCacheGen   uint64
 
 	// llmHealth is the process-wide circuit-breaker state for LLM failover (轮询).
 	// It deliberately lives OUTSIDE the provider caches: rebuilding the chain
@@ -345,7 +344,7 @@ func (s *Server) loadLLMConfig() (agent.Config, bool) {
 }
 
 // saveLLMConfig persists the LLM config as the active "default" profile in PG.
-func (s *Server) saveLLMConfig(cfg agent.Config) error {
+func (s *Server) saveLLMConfig(cfg agent.Config) (int64, error) {
 	// cfg.Provider() already returns one of the three valid format strings
 	// (anthropic / openai / openai-responses), matching the DB CHECK constraint.
 	format := cfg.Provider()
@@ -380,9 +379,9 @@ func (s *Server) saveLLMConfig(cfg agent.Config) error {
 		Retry: retry,
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return s.m.pg.SetActiveProfile(newID)
+	return newID, s.m.pg.SetActiveProfile(newID)
 }
 
 // reapplyActiveProfile hot-reloads the engine from the active DB profile so that
@@ -509,7 +508,7 @@ func (s *Server) applyLLMWithoutTaskAgentInvalidation(cfg agent.Config) error {
 		} else {
 			s.resetEnvironmentEffortProviders()
 			var ok bool
-			prov, _, ok = s.environmentProviderForEffort(cfg, s.llmProf, "", nil)
+			prov, _, ok = s.environmentProviderForEffort(cfg, s.llmProf, "")
 			if !ok {
 				s.cfgMu.Unlock()
 				return fmt.Errorf("provider init failed for %s / %s", cfg.Provider(), cfg.Model)
@@ -668,14 +667,35 @@ func (s *Server) chatAgentForProfile(id int64) *agent.ChatAgent {
 	return ca
 }
 
-// invalidateProfileAgents drops the per-profile ChatAgent + provider caches so a profile
-// save/delete — or an agent's binding change — rebuilds pinned tasks' agents
-// (and re-resolves each agent's bound model) on their next round.
 func (s *Server) invalidateProfileAgents() {
 	s.profileReapplyMu.Lock()
-	s.invalidateProfileCaches()
+	s.invalidateProfileChatAgents()
+	s.provCacheMu.Lock()
+	s.globalByEffort = map[string]*provEntry{}
+	s.provCacheMu.Unlock()
 	s.profileReapplyMu.Unlock()
 	s.invalidateTaskAgents()
+}
+
+func (s *Server) invalidateProfileProvider(id int64) {
+	s.profileReapplyMu.Lock()
+	s.invalidateProfileProviderLocked(id)
+	s.profileReapplyMu.Unlock()
+	s.invalidateTaskAgents()
+}
+
+func (s *Server) invalidateProfileProviderLocked(id int64) {
+	s.invalidateProfileChatAgents()
+	s.provCacheMu.Lock()
+	delete(s.provByProfile, id)
+	for key := range s.provByEffort {
+		if key.id == id {
+			delete(s.provByEffort, key)
+		}
+	}
+	delete(s.provShared, id)
+	s.globalByEffort = map[string]*provEntry{}
+	s.provCacheMu.Unlock()
 }
 
 func (s *Server) invalidateProfileCaches() {
@@ -684,7 +704,6 @@ func (s *Server) invalidateProfileCaches() {
 	preserveEnvironment := s.llmOn && s.llmProfileID == 0
 	s.cfgMu.Unlock()
 	s.provCacheMu.Lock()
-	s.provCacheGen++
 	if preserveEnvironment {
 		for id := range s.provByProfile {
 			if id != 0 {
@@ -1428,12 +1447,13 @@ func (s *Server) setLLM(w http.ResponseWriter, r *http.Request) {
 			s.invalidateTaskAgents()
 		}
 	}()
-	if err := s.saveLLMConfig(cfg); err != nil {
+	id, err := s.saveLLMConfig(cfg)
+	if err != nil {
 		writeErr(w, 500, "persist provider failed: "+err.Error())
 		return
 	}
 	rebuildTaskAgents = true
-	s.invalidateProfileCaches()
+	s.invalidateProfileProviderLocked(id)
 	savedCfg, ok := s.loadLLMConfig()
 	if !ok {
 		writeErr(w, 500, "saved provider is unavailable")
@@ -1554,9 +1574,6 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.Name) == "" {
 		writeErr(w, 400, "name is required")
 		return
-	}
-	if strings.TrimSpace(req.Description) == "" {
-		req.Description = "Untitled Task"
 	}
 	if len(req.LLMProfileIDs) == 0 && req.LLMProfileID != nil {
 		req.LLMProfileIDs = []int64{*req.LLMProfileID}

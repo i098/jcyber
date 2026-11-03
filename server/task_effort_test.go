@@ -249,6 +249,95 @@ func TestEnvironmentEffortKeepsLimiterAfterInactiveProfileSave(t *testing.T) {
 	}
 }
 
+func TestUnchangedActiveProfileKeepsLimiterAfterOtherProfileSave(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v)", err)
+	}
+	defer m.Close()
+	srv, requests := effortWireServer(t)
+	defer srv.Close()
+	previous, err := m.pg.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeID, err := m.pg.SaveProfile(&db.LLMProfile{
+		Name: fmt.Sprintf("active-unchanged-%d", time.Now().UnixNano()), Format: "openai-responses",
+		BaseURL: srv.URL, Model: "active-model", APIKey: "test-key", RatePerMinute: 1,
+		ThinkingType: "enabled", ReasoningEffort: "high", Streaming: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var savedID int64
+	defer func() {
+		if previous != nil {
+			_ = m.pg.SetActiveProfile(previous.ID)
+		} else {
+			_, _ = m.pg.Exec(`UPDATE llm_profiles SET is_default=false WHERE id=$1`, activeID)
+		}
+		if savedID != 0 {
+			_ = m.pg.DeleteProfile(savedID)
+		}
+		_ = m.pg.DeleteProfile(activeID)
+	}()
+	if err := m.pg.SetActiveProfile(activeID); err != nil {
+		t.Fatal(err)
+	}
+	poolEnabled := m.LLMPoolEnabled()
+	if err := m.SetLLMPoolEnabled(false); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.SetLLMPoolEnabled(poolEnabled) }()
+	s := &Server{m: m, llmHealth: newLLMHealthRegistry(m.pg)}
+	cfg, ok := s.loadLLMConfig()
+	if !ok {
+		t.Fatal("active profile unavailable")
+	}
+	if err := s.applyLLM(cfg); err != nil {
+		t.Fatal(err)
+	}
+	maxProvider, _, ok := s.globalProviderForEffort(ThinkingEffortMax)
+	if !ok {
+		t.Fatal("max effort did not resolve active provider")
+	}
+	assertEffortWire(t, effortWireRequest(t, maxProvider, requests), cfg.Model, cfg.ReasoningEffort)
+	body, err := json.Marshal(map[string]any{
+		"name": fmt.Sprintf("inactive-other-%d", time.Now().UnixNano()), "format": "openai-responses",
+		"model": "other-model", "base_url": srv.URL, "api_key": "test-key",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	s.pgSaveProfile(recorder, httptest.NewRequest(http.MethodPost, "/api/llm/profiles", bytes.NewReader(body)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("save other profile: %d %s", recorder.Code, recorder.Body.String())
+	}
+	var saved struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &saved); err != nil {
+		t.Fatal(err)
+	}
+	savedID = saved.ID
+	autoProvider, autoCfg, ok := s.globalProviderForEffort(ThinkingEffortAuto)
+	if !ok || autoCfg.Model != cfg.Model {
+		t.Fatalf("auto config = %+v, available = %v", autoCfg, ok)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	_, _, _, err = autoProvider.Complete(ctx, llm.CompletionRequest{})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("auto effort did not share active profile limiter: %v", err)
+	}
+	select {
+	case request := <-requests:
+		t.Fatalf("auto effort sent a second request before rate limit: %v", request)
+	default:
+	}
+}
+
 func TestGlobalAutoEffortDoesNotAttributeOldConfigToNewActiveProfile(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
@@ -384,7 +473,7 @@ func TestApplyLLMInvalidatesStaleGlobalAutoProvider(t *testing.T) {
 	if _, err := m.pg.SaveProfile(profile); err != nil {
 		t.Fatal(err)
 	}
-	s.invalidateProfileAgents()
+	s.invalidateProfileProvider(id)
 	_, staleConfig, ok := s.globalProviderForEffort(ThinkingEffortAuto)
 	if !ok || staleConfig.Model != "old-model" {
 		t.Fatalf("pre-reapply auto config = %+v, available = %v; want old applied model", staleConfig, ok)
@@ -395,13 +484,6 @@ func TestApplyLLMInvalidatesStaleGlobalAutoProvider(t *testing.T) {
 	}
 	if err := s.applyLLM(newConfig); err != nil {
 		t.Fatal(err)
-	}
-	s.provCacheMu.Lock()
-	oldGeneration := s.provCacheGen
-	s.provCacheMu.Unlock()
-	s.resetGlobalAutoProvider()
-	if _, _, ok := s.environmentProviderForEffort(oldConfig, s.llmProf, ThinkingEffortAuto, &oldGeneration); ok {
-		t.Fatal("stale auto provider built after cache generation changed")
 	}
 	provider, cfg, ok := s.globalProviderForEffort(ThinkingEffortAuto)
 	if !ok || cfg.Model != "new-model" {

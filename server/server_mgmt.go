@@ -441,8 +441,6 @@ func (s *Server) pgSaveAgentConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// an agent's LLM binding change also invalidates pinned-task / per-profile caches
-	// so their next round re-resolves each agent's bound model.
 	if profileChanged {
 		s.invalidateProfileAgents()
 	}
@@ -1830,7 +1828,7 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	// Editing a profile rebuilds any task pinned to it on its next round. Reapply
 	// the active profile too: the global fallback and explicit task chains must
 	// repopulate the same provider-cache entry and therefore share one limiter.
-	s.invalidateProfileCaches()
+	s.invalidateProfileProviderLocked(id)
 	// Hot-apply. Not just when the ACTIVE profile changed: with failover on, any
 	// profile's key/model/priority/pool_exclude edit reshapes the chain, so the
 	// engine's provider has to be rebuilt either way.
@@ -1901,10 +1899,9 @@ func (s *Server) pgDeleteProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	s.invalidateProfileAgents() // drop cached agents for the removed profile
-	s.llmHealth.Reset(id)       // its breaker state is meaningless now (row is FK-cascaded away)
+	s.invalidateProfileProvider(id) // drop cached agents for the removed profile
+	s.llmHealth.Reset(id)           // its breaker state is meaningless now (row is FK-cascaded away)
 	s.restoreTasksAfterProfileDelete(pg)
-	// Cache invalidation also removed the active profile's shared provider entry.
 	// Reapply after task-state sync so the wake-up observes the post-delete chain.
 	s.reapplyActiveProfile()
 	writeJSON(w, 200, map[string]any{"deleted": id})

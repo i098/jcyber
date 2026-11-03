@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"pta/db"
 	actool "normasdk/tool"
+	"pta/db"
 )
 
 func callReadJSON(t *testing.T, tool actool.CoreTool, input string) any {
@@ -23,6 +23,58 @@ func callReadJSON(t *testing.T, tool actool.CoreTool, input string) any {
 		t.Fatalf("decode tool result: %v; raw=%s", err, result.Flatten())
 	}
 	return out
+}
+
+func TestGraphOverviewKeepsCreationTargetAfterRename(t *testing.T) {
+	d := testDB(t)
+	defer d.Close()
+
+	const originalName = "10.0.0.1:8080 audit"
+	task, err := d.CreateTaskWithOptions("", "Scan target", db.TaskCreateOptions{Name: originalName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.DeleteTask(task.ID) })
+
+	renamed := "other.com audit"
+	if _, err := d.UpdateTask(task.ID, db.TaskPatch{Name: &renamed}); err != nil {
+		t.Fatal(err)
+	}
+
+	store := d.Exploration(task.ExplorationID)
+	origin, err := store.OriginFactID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := store.GetNode(origin)
+	if err != nil || node == nil {
+		t.Fatalf("origin node: %v", err)
+	}
+	var payload struct {
+		Summary string `json:"summary"`
+	}
+	if err := json.Unmarshal(node.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(payload.Summary, originalName) || strings.Contains(payload.Summary, renamed) {
+		t.Fatalf("origin summary lost creation target: %q", payload.Summary)
+	}
+
+	tools := NewToolSet(store, "planner")
+	overview, ok := callReadJSON(t, tools.GraphOverviewTool(), "{}").(map[string]any)
+	if !ok {
+		t.Fatal("graph overview is not an object")
+	}
+	context, ok := overview["task"].(map[string]any)
+	if !ok {
+		t.Fatal("task context missing")
+	}
+	if context["creation_name"] != originalName || context["goal"] != "Scan target" {
+		t.Fatalf("wrong task context: %#v", context)
+	}
+	if _, hasDescription := context["description"]; hasDescription {
+		t.Fatalf("blank description included in task context: %#v", context)
+	}
 }
 
 func TestGraphOverviewExpandsAssociatedCompanyScope(t *testing.T) {

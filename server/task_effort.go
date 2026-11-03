@@ -97,7 +97,6 @@ func (s *Server) providerForProfileEffortUnlocked(id int64, effort string) (llm.
 		s.provCacheMu.Unlock()
 		return cached.prov, cached.cfg, true
 	}
-	generation := s.provCacheGen
 	s.provCacheMu.Unlock()
 	cfg, ok := s.loadProfileConfig(id)
 	if !ok {
@@ -117,10 +116,6 @@ func (s *Server) providerForProfileEffortUnlocked(id int64, effort string) (llm.
 		prov = bindSideProvider(prov, cfg, id, p.Name)
 	}
 	s.provCacheMu.Lock()
-	if generation != s.provCacheGen {
-		s.provCacheMu.Unlock()
-		return s.providerForProfileEffortUnlocked(id, effort)
-	}
 	if effort == "" {
 		cached = s.provByProfile[id]
 	} else {
@@ -160,13 +155,9 @@ func (s *Server) providerForProfileEffortUnlocked(id int64, effort string) (llm.
 	return prov, cfg, true
 }
 
-func (s *Server) environmentProviderForEffort(baseCfg agent.Config, name, effort string, expectedGeneration *uint64) (llm.Provider, agent.Config, bool) {
+func (s *Server) environmentProviderForEffort(baseCfg agent.Config, name, effort string) (llm.Provider, agent.Config, bool) {
 	key := effortProfileKey{effort: effort}
 	s.provCacheMu.Lock()
-	if expectedGeneration != nil && *expectedGeneration != s.provCacheGen {
-		s.provCacheMu.Unlock()
-		return nil, agent.Config{}, false
-	}
 	var cached *provEntry
 	if effort == "" {
 		cached = s.provByProfile[0]
@@ -177,7 +168,6 @@ func (s *Server) environmentProviderForEffort(baseCfg agent.Config, name, effort
 		s.provCacheMu.Unlock()
 		return cached.prov, cached.cfg, true
 	}
-	generation := s.provCacheGen
 	s.provCacheMu.Unlock()
 	cfg := resolvedEffortConfig(baseCfg, effort)
 	providerCfg := cfg
@@ -190,13 +180,6 @@ func (s *Server) environmentProviderForEffort(baseCfg agent.Config, name, effort
 	prov = llmrec.Wrap(prov, s.m.PG(), cfg.Model, name, cfg.ThinkingType, cfg.ReasoningEffort, s.m.LLMRecordEnabled)
 	prov = bindSideProvider(prov, cfg, 0, name)
 	s.provCacheMu.Lock()
-	if generation != s.provCacheGen {
-		s.provCacheMu.Unlock()
-		if expectedGeneration != nil {
-			return nil, agent.Config{}, false
-		}
-		return s.environmentProviderForEffort(baseCfg, name, effort, nil)
-	}
 	if effort == "" {
 		cached = s.provByProfile[0]
 	} else {
@@ -237,7 +220,6 @@ func (s *Server) environmentProviderForEffort(baseCfg agent.Config, name, effort
 
 func (s *Server) resetEnvironmentEffortProviders() {
 	s.provCacheMu.Lock()
-	s.provCacheGen++
 	delete(s.provByProfile, 0)
 	delete(s.provShared, 0)
 	delete(s.provByEffort, effortProfileKey{effort: ThinkingEffortAuto})
@@ -247,7 +229,6 @@ func (s *Server) resetEnvironmentEffortProviders() {
 
 func (s *Server) resetGlobalAutoProvider() {
 	s.provCacheMu.Lock()
-	s.provCacheGen++
 	delete(s.provByEffort, effortProfileKey{effort: ThinkingEffortAuto})
 	delete(s.globalByEffort, ThinkingEffortAuto)
 	s.provCacheMu.Unlock()
@@ -283,7 +264,6 @@ func (s *Server) resolveGlobalProviderForEffort(effort string, withFailover bool
 			return e.prov, e.cfg, true
 		}
 	}
-	generation := s.provCacheGen
 	s.provCacheMu.Unlock()
 	s.cfgMu.Unlock()
 	var prov llm.Provider
@@ -306,14 +286,8 @@ func (s *Server) resolveGlobalProviderForEffort(effort string, withFailover bool
 			return nil, agent.Config{}, false
 		}
 		var ok bool
-		prov, cfg, ok = s.environmentProviderForEffort(baseCfg, name, effort, &generation)
+		prov, cfg, ok = s.environmentProviderForEffort(baseCfg, name, effort)
 		if !ok {
-			s.provCacheMu.Lock()
-			changed := generation != s.provCacheGen
-			s.provCacheMu.Unlock()
-			if changed {
-				return s.resolveGlobalProviderForEffort(effort, withFailover)
-			}
 			return nil, agent.Config{}, false
 		}
 	}
@@ -321,10 +295,6 @@ func (s *Server) resolveGlobalProviderForEffort(effort string, withFailover bool
 		prov = s.poolForActiveEffort(poolHeadID, prov, cfg, effort)
 	}
 	s.provCacheMu.Lock()
-	if generation != s.provCacheGen {
-		s.provCacheMu.Unlock()
-		return s.resolveGlobalProviderForEffort(effort, withFailover)
-	}
 	if !withFailover {
 		s.provCacheMu.Unlock()
 		return prov, cfg, true
