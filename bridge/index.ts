@@ -181,14 +181,15 @@ const TOOLS: Record<string, ToolDef> = {
     },
   },
   create_task: {
-    description: "Create a new jcyber task targeting a domain/host. Each target gets its own task. Include a clear goal and optional LLM profile id (1=DeepSeek Max, 5-10=Mercury 3 high). Returns the new task id.",
+    description: "Create a new jcyber task targeting a domain/host. Each target gets its own task. Set name to the short display title; description is separate long-form context, never the task name. Include a clear goal. Set thinking_effort to auto for easy jobs, leave it unset for hard ones. Returns the new task id.",
     parameters: {
       type: "object",
       properties: {
-        name: { type: "string", description: "Short task name, e.g. 'example.com scan'" },
+        name: { type: "string", description: "Task display name/title, e.g. 'example.com scan'. Put the task name here, not in description." },
         goal: { type: "string", description: "What to do against the target" },
-        description: { type: "string", description: "Task description (defaults to Untitled Task)" },
-        llm_profile_id: { type: "number", description: "Optional LLM profile id (1=DeepSeek Max, 5-10=Mercury 3)" },
+        description: { type: "string", description: "Optional long-form task context/instructions, separate from the display name (defaults to Untitled Task)." },
+        llm_profile_id: { type: "number", description: "Optional explicit LLM profile id; usually omit so the pool rotates codex/deepseek/kimi" },
+        thinking_effort: { type: "string", enum: ["max", "auto"], description: "Reasoning effort for this task: omit or 'max' for hard targets (the pool runs max thinking), 'auto' for easy/quick jobs so the provider picks a cheaper default effort." },
       },
       required: ["goal"],
     },
@@ -201,6 +202,7 @@ const TOOLS: Record<string, ToolDef> = {
           goal: str(a.goal),
           description: str(a.description) || "Untitled Task",
           llm_profile_id: Number(a.llm_profile_id) > 0 ? Number(a.llm_profile_id) : undefined,
+          thinking_effort: a.thinking_effort === "auto" ? "auto" : undefined,
           seed_first_intent: true,
         }),
         signal: AbortSignal.timeout(15_000),
@@ -208,6 +210,28 @@ const TOOLS: Record<string, ToolDef> = {
       if (!res.ok) throw new Error(`create task ${res.status}: ${(await res.text()).slice(0, 200)}`);
       const t = record(await res.json());
       return JSON.stringify({ id: t.id, name: str(t.name), status: str(t.status) });
+    },
+  },
+  rename_task: {
+    description: "Rename an existing task's display name/title by id without changing its description, goal, or execution state.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: { type: "number", description: "Task id" },
+        name: { type: "string", description: "New non-empty task display name, at most 200 characters. Surrounding whitespace is trimmed." },
+      },
+      required: ["id", "name"],
+    },
+    run: async (a) => {
+      const res = await fetch(`${JCYBER_URL}/api/tasks/${Number(a.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await auth()}` },
+        body: JSON.stringify({ name: str(a.name) }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) throw new Error(`rename task ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      const t = record(await res.json());
+      return JSON.stringify({ id: t.id, name: str(t.name) });
     },
   },
   task_detail: {
@@ -270,9 +294,9 @@ const toolSpecs = (): ChatCompletionTool[] =>
 async function subagent(prompt: string): Promise<string> {
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: `You are a jcyber operations subagent. Fulfill this request using your tools.
-Prefer direct tools for everything that has one: create_task for new targets, task_detail/task_findings for reads,
-task_control to pause/resume, list_tasks for overview. Use jcyber_chat only for things without a direct tool
-(hints, worker messages, platform reasoning).
+Prefer direct tools for everything that has one: create_task for new targets, rename_task to change task names,
+task_detail/task_findings for reads, task_control to pause/resume, list_tasks for overview.
+Use jcyber_chat only for things without a direct tool (hints, worker messages, platform reasoning).
 When multiple targets are requested, create one task per target so they run in parallel.
 Return a concise factual summary of what happened, with exact task ids, names and statuses, in plain language.
 The front desk will text it to the user.` },

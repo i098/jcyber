@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { api } from "@/lib/api";
+import { observeGraphTheme, readGraphTheme } from "@/lib/graph-theme";
 import type { CoverageAssetRef, CoverageAssetRefs, CoverageGraphEdge, CoverageGraphNode } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -227,16 +228,16 @@ function toG6Nodes(renderNodes: RenderNode[]): G6NodeDatum[] {
 const nd = (d: unknown) => d as G6NodeDatum;
 
 // 已测=实色高亮；范围内未测=灰；范围外/折叠=更淡的灰 + 虚线描边。
-function nodeFill(d: G6NodeDatum): string {
-  if (d.fold) return "#f1f5f9";
-  if (!d.inScope) return "#e2e8f0";
+function nodeFill(d: G6NodeDatum, colors: ReturnType<typeof readGraphTheme>): string {
+  if (d.fold) return colors.muted;
+  if (!d.inScope) return colors.background;
   if (d.tested) return kindMeta[d.kind].hex;
-  return "#94a3b8";
+  return colors.muted;
 }
-function nodeStroke(d: G6NodeDatum): string {
-  if (d.fold || !d.inScope) return "#94a3b8";
-  if (d.tested) return "#0f766e";
-  return "#64748b";
+function nodeStroke(d: G6NodeDatum, colors: ReturnType<typeof readGraphTheme>): string {
+  if (d.fold || !d.inScope) return colors.mutedForeground;
+  if (d.tested) return kindMeta[d.kind].hex;
+  return colors.ring;
 }
 
 // ---------------------------------------------------------------------------
@@ -528,36 +529,49 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
   React.useEffect(() => {
     let destroyed = false;
     let graph: G6Graph | null = null;
+    let stopObserving: (() => void) | undefined;
     void (async () => {
       const { Graph } = await import("@antv/g6");
       if (destroyed || !containerRef.current) return;
+      let colors = readGraphTheme();
+      const mutedIcons = () =>
+        Object.fromEntries(
+          Object.entries({ ...KIND_ICON, fold: FOLD_ICON }).map(([kind, icon]) => [
+            kind,
+            icon.replaceAll("%23fff", encodeURIComponent(colors.foreground)),
+          ]),
+        );
+      let icons = mutedIcons();
       graph = new Graph({
         container: containerRef.current,
         autoResize: true,
         autoFit: "view",
-        background: "#f0f2f7",
+        background: "transparent",
         node: {
           style: {
             size: (d: unknown) => nd(d).size,
-            fill: (d: unknown) => nodeFill(nd(d)),
-            stroke: (d: unknown) => nodeStroke(nd(d)),
+            fill: (d: unknown) => nodeFill(nd(d), colors),
+            stroke: (d: unknown) => nodeStroke(nd(d), colors),
             lineWidth: (d: unknown) => (nd(d).fold || !nd(d).inScope ? 1 : 1.5),
             lineDash: (d: unknown) => (nd(d).fold || !nd(d).inScope ? [3, 3] : [0]),
-            iconSrc: (d: unknown) => (nd(d).fold ? FOLD_ICON : KIND_ICON[nd(d).kind]),
+            iconSrc: (d: unknown) => {
+              const node = nd(d);
+              return node.fold ? icons.fold : node.tested ? KIND_ICON[node.kind] : icons[node.kind];
+            },
             iconWidth: (d: unknown) => Math.max(12, nd(d).size * 0.55),
             iconHeight: (d: unknown) => Math.max(12, nd(d).size * 0.55),
             labelText: (d: unknown) => nd(d).lbl,
             labelFontSize: 10,
             labelPlacement: "bottom",
-            labelFill: "#475569",
+            labelFill: () => colors.foreground,
             labelBackground: true,
-            labelBackgroundFill: "rgba(255,255,255,0.75)",
+            labelBackgroundFill: () => colors.card,
             labelBackgroundRadius: 3,
             labelPadding: [1, 3],
           },
         },
         edge: {
-          style: { stroke: "#cbd5e1", lineWidth: 1, endArrow: false },
+          style: { stroke: () => colors.mutedForeground, strokeOpacity: 0.4, lineWidth: 1, endArrow: false },
         },
         layout: {
           type: "d3-force",
@@ -588,9 +602,22 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
       });
       graphRef.current = graph;
       applyData();
+      stopObserving = observeGraphTheme(() => {
+        if (!graph || graph.destroyed) return;
+        colors = readGraphTheme();
+        icons = mutedIcons();
+        // Refresh styles without restarting the force layout or resetting zoom.
+        const { node, edge } = graph.getOptions();
+        if (node) graph.setNode(node);
+        if (edge) graph.setEdge(edge);
+        void graph.draw().catch((err) => {
+          if (!graph?.destroyed) console.error("[coverage-graph] theme:", err);
+        });
+      });
     })();
     return () => {
       destroyed = true;
+      stopObserving?.();
       // 先停布局再销毁:尽量缩短"布局在飞、context 被清空"的竞态窗口。
       try {
         graph?.stopLayout();
@@ -630,7 +657,7 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
 
   return (
     <div className="relative h-full w-full">
-      <div ref={containerRef} className="h-full w-full" />
+      <div ref={containerRef} className="h-full w-full bg-background" />
 
       {/* 图例 + 统计 + 刷新（叠加层） */}
       <div className="pointer-events-auto absolute top-3 left-3 flex max-w-[340px] flex-col gap-2.5 rounded-lg border bg-card/95 p-3 text-xs shadow-sm backdrop-blur">
@@ -676,12 +703,12 @@ function GraphInner({ taskId, coverageEnabled = true }: { taskId: string; covera
                 <span className="size-3 rounded-full bg-emerald-500" /> Tested (highlighted)
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <span className="size-3 rounded-full bg-neutral-400" /> Untested
+                <span className="size-3 rounded-full border border-ring bg-muted" /> Untested
               </span>
             </>
           )}
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-3 rounded-full border border-neutral-400 border-dashed bg-neutral-200" /> Out of scope
+            <span className="size-3 rounded-full border border-muted-foreground border-dashed bg-background" /> Out of scope
           </span>
         </div>
         <p className="border-border/60 border-t pt-2 text-muted-foreground/80 leading-relaxed">

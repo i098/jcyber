@@ -1,4 +1,17 @@
 # Changelog
+## [Unreleased] - 2026-11-03
+
+- Task thinking effort is selectable: `thinking_effort: "auto"` on task creation
+  binds the task to the active model's provider-default variant, while hard tasks
+  stay on the max-thinking rotation pool. Exposed to the iMessage front desk as a
+  `create_task` field, so the spawner picks effort by task difficulty.
+- iMessage bridge gains `rename_task` (via `PATCH /api/tasks/{id}`), and
+  `create_task` now spells out that `name` is the display title and `description`
+  is long-form context, so names stop landing in descriptions.
+- Asset graph: legend and labels are in English, and colors follow the app theme
+  instead of staying light inside dark mode.
+- LLM Token Usage panel defaults to the New view; Legacy remains selectable.
+
 
 ## [Unreleased] - 2026-10-31
 

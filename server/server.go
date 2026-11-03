@@ -1455,6 +1455,11 @@ type createTaskReq struct {
 	PlanHeartbeatSeconds int      `json:"plan_heartbeat_seconds"`      // planner 心跳触发间隔(秒);0/省略=默认600(10min);下限=默认=600,低于自动抬到600
 	SeedFirstIntent      *bool    `json:"seed_first_intent,omitempty"` // 创建时直接下发一条种子意图(内容=描述+目标),让 worker 免等首轮 planner 直接开跑;省略/null=默认关闭,走标准先规划再执行。显式传 true 才开(CTF 常一 work 解决时可省掉开跑前的 planner 轮)。
 	CoverageEnabled      *bool    `json:"coverage_enabled,omitempty"`  // 资产覆盖度功能;省略/null=默认开(true)。false=关闭覆盖度计算/展示/自动累积范围+隐藏 add_task_scope/list_untested_assets。company 关联不受影响。
+	// ThinkingEffort 选择任务的思考强度:
+	//   ""/"max" = 不绑定,走轮询池(池内均为 max/xhigh);
+	//   "auto"    = 绑定到当前模型的 auto 变体(不发思考字段,由端点自行决定强度),
+	//               供低难度任务省掉最大档推理的开销。
+	ThinkingEffort string `json:"thinking_effort,omitempty"`
 	// InterceptRules 任务级资产拦截/允许规则(创建时录入,存 task_intercept_rules,不进全局表)。
 	InterceptRules []taskInterceptRuleReq `json:"intercept_rules,omitempty"`
 }
@@ -1470,6 +1475,20 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.LLMProfileIDs) == 0 && req.LLMProfileID != nil {
 		req.LLMProfileIDs = []int64{*req.LLMProfileID}
+	}
+	switch strings.ToLower(strings.TrimSpace(req.ThinkingEffort)) {
+	case "", ThinkingEffortMax:
+		// 高难度路径:不绑定,由轮询池驱动(池内配置均为最高档思考)。
+	case ThinkingEffortAuto:
+		// 低难度路径:绑定到当前模型的 auto 变体;显式指定的链优先于该选择。
+		if len(req.LLMProfileIDs) == 0 {
+			if id, ok := s.autoEffortProfile(); ok {
+				req.LLMProfileIDs = []int64{id}
+			}
+		}
+	default:
+		writeErr(w, 400, `thinking_effort must be "auto" or "max"`)
+		return
 	}
 	if err := s.validateTaskProfileIDs(req.LLMProfileIDs); err != nil {
 		writeErr(w, 400, err.Error())
