@@ -921,7 +921,7 @@ export default function FindingsPage() {
               <SelectItem value={UNASSIGNED_TASK}>Unlinked / Task deleted</SelectItem>
               {(stats.tasks ?? []).map((t) => {
                 const id = String(t.id);
-                const label = t.name || t.description || `Task #${id} (deleted)`;
+                const label = t.name || t.description || `Task #${id}`;
                 return (
                   <SelectItem key={id} value={id}>
                     <span className="flex w-full items-center gap-2">
@@ -1053,7 +1053,7 @@ export default function FindingsPage() {
                                 : `Task #${group.task_id}`}
                           </CardTitle>
                           <CardDescription className="truncate" title={group.task_description}>
-                            {group.task_description || "Source Task unavailable"}
+                            {group.task_description || (group.task_id === null ? "Source Task unavailable" : "No description")}
                           </CardDescription>
                         </div>
                       </button>

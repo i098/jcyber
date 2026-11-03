@@ -260,9 +260,6 @@ func (s *Server) llmPoolStatus() map[string]any {
 			LastError: st.LastError,
 		}
 		cached := s.cachedProfileEntry(p.ID, "")
-		if cached == nil {
-			cached = s.cachedProfileEntry(p.ID, ThinkingEffortAuto)
-		}
 		if cached != nil {
 			if cached.name != "" {
 				m.Name = cached.name

@@ -1377,9 +1377,13 @@ function TaskNameEditor({ task, onRename }: { task: Task; onRename: (task: Task,
       <Link
         href={`/function/tasks/detail?id=${encodeURIComponent(task.id)}`}
         className="min-w-0 truncate rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        title={task.name?.trim() ? task.name : task.description}
+        title={task.name?.trim() ? task.name : task.description || `Task #${task.id}`}
       >
-        {task.name?.trim() ? task.name : <span className="text-muted-foreground">Unnamed</span>}
+        {task.name?.trim() ? (
+          task.name
+        ) : (
+          <span className="text-muted-foreground">{task.description ? "Unnamed" : `Task #${task.id}`}</span>
+        )}
       </Link>
       <Button
         type="button"

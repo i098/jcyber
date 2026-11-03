@@ -121,11 +121,13 @@ type Server struct {
 
 // provEntry is a cached provider + its config for one LLM profile id.
 type provEntry struct {
-	prov        llm.Provider
-	cfg         agent.Config
-	name        string
-	priority    int
-	poolExclude bool
+	prov          llm.Provider
+	cfg           agent.Config
+	baseCfg       agent.Config
+	retryOverride db.RetryOverride
+	name          string
+	priority      int
+	poolExclude   bool
 }
 
 // triggeredRun is one queued P3 trigger fire awaiting its turn for an agent.
@@ -427,6 +429,16 @@ func (s *Server) reapplyActiveProfileWithoutTaskAgentInvalidation() bool {
 		}
 		log.Printf("[engine] LLM reapplied from profile %d: %s / %s", profile.ID, cfg.Provider(), cfg.Model)
 		return true
+	}
+	s.cfgMu.Lock()
+	cfg, on := s.llmCfg, s.llmOn
+	s.cfgMu.Unlock()
+	if on {
+		if err := s.applyLLMWithoutTaskAgentInvalidation(cfg); err == nil {
+			return true
+		} else {
+			log.Printf("[engine] reapply running LLM failed: %v", err)
+		}
 	}
 	return false
 }

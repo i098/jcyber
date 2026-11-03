@@ -5,10 +5,10 @@ import (
 	"errors"
 	"iter"
 	"log"
-	"sync"
 
 	"normasdk/llm"
 	"pta/agent"
+	"pta/db"
 	"pta/llmrec"
 )
 
@@ -22,21 +22,16 @@ type effortProfileKey struct {
 	effort string
 }
 
-type effortContextKey struct{}
+type providerContextKey struct{}
 
 type profileEffortRouter struct {
-	mu         sync.RWMutex
-	providers  map[string]llm.Provider
 	limited    llm.Provider
 	rateSecond float64
 	rateMinute float64
 }
 
-func (r *profileEffortRouter) provider(ctx context.Context) llm.Provider {
-	effort, _ := ctx.Value(effortContextKey{}).(string)
-	r.mu.RLock()
-	prov := r.providers[effort]
-	r.mu.RUnlock()
+func (*profileEffortRouter) provider(ctx context.Context) llm.Provider {
+	prov, _ := ctx.Value(providerContextKey{}).(llm.Provider)
 	return prov
 }
 
@@ -57,16 +52,16 @@ func (r *profileEffortRouter) Complete(ctx context.Context, req llm.CompletionRe
 }
 
 type profileEffortView struct {
-	shared llm.Provider
-	effort string
+	shared   llm.Provider
+	provider llm.Provider
 }
 
 func (v *profileEffortView) Stream(ctx context.Context, req llm.CompletionRequest) iter.Seq2[llm.StreamEvent, error] {
-	return v.shared.Stream(context.WithValue(ctx, effortContextKey{}, v.effort), req)
+	return v.shared.Stream(context.WithValue(ctx, providerContextKey{}, v.provider), req)
 }
 
 func (v *profileEffortView) Complete(ctx context.Context, req llm.CompletionRequest) (llm.Message, string, llm.Usage, error) {
-	return v.shared.Complete(context.WithValue(ctx, effortContextKey{}, v.effort), req)
+	return v.shared.Complete(context.WithValue(ctx, providerContextKey{}, v.provider), req)
 }
 
 func resolvedEffortConfig(cfg agent.Config, effort string) agent.Config {
@@ -98,7 +93,10 @@ func (s *Server) cachedProfileEntry(id int64, effort string) *provEntry {
 			return entry
 		}
 	}
-	return s.provByProfile[id]
+	if entry := s.provByProfile[id]; entry != nil {
+		return entry
+	}
+	return s.provByEffort[effortProfileKey{id: id, effort: ThinkingEffortAuto}]
 }
 
 func (s *Server) buildEffortProvider(id int64, baseCfg agent.Config, name, effort string) (llm.Provider, agent.Config, error) {
@@ -121,6 +119,7 @@ func (s *Server) providerForEffortUnlocked(id int64, effort string, source *agen
 	var desired agent.Config
 	priority := 0
 	poolExclude := false
+	var retryOverride db.RetryOverride
 	if source != nil {
 		desired = resolvedEffortConfig(*source, effort)
 	}
@@ -135,11 +134,16 @@ func (s *Server) providerForEffortUnlocked(id int64, effort string, source *agen
 		s.provCacheMu.Unlock()
 		return cached.prov, cached.cfg, true
 	}
-	if base := s.provByProfile[id]; base != nil {
+	base := s.provByProfile[id]
+	if base == nil {
+		base = s.provByEffort[effortProfileKey{id: id, effort: ThinkingEffortAuto}]
+	}
+	if base != nil {
 		priority = base.priority
 		poolExclude = base.poolExclude
-		if source == nil && effort == ThinkingEffortAuto {
-			applied := base.cfg
+		retryOverride = base.retryOverride
+		if source == nil {
+			applied := base.baseCfg
 			source = &applied
 			name = base.name
 			desired = resolvedEffortConfig(applied, effort)
@@ -160,6 +164,7 @@ func (s *Server) providerForEffortUnlocked(id int64, effort string, source *agen
 		name = profile.Name
 		priority = profile.Priority
 		poolExclude = profile.PoolExclude
+		retryOverride = profile.Retry
 	} else {
 		baseCfg = *source
 	}
@@ -190,18 +195,15 @@ func (s *Server) providerForEffortUnlocked(id int64, effort string, source *agen
 			shared = nil
 		}
 		if shared == nil {
-			shared = &profileEffortRouter{providers: map[string]llm.Provider{}, rateSecond: cfg.RatePerSecond, rateMinute: cfg.RatePerMinute}
+			shared = &profileEffortRouter{rateSecond: cfg.RatePerSecond, rateMinute: cfg.RatePerMinute}
 			shared.limited = llm.RateLimited(shared, llm.RateLimit{PerSecond: cfg.RatePerSecond, PerMinute: cfg.RatePerMinute})
 			if s.provShared == nil {
 				s.provShared = map[int64]*profileEffortRouter{}
 			}
 			s.provShared[id] = shared
 		}
-		shared.mu.Lock()
-		shared.providers[effort] = prov
-		shared.mu.Unlock()
-		prov = &profileEffortView{shared: shared.limited, effort: effort}
-		entry := &provEntry{prov: prov, cfg: cfg, name: name, priority: priority, poolExclude: poolExclude}
+		prov = &profileEffortView{shared: shared.limited, provider: prov}
+		entry := &provEntry{prov: prov, cfg: cfg, baseCfg: baseCfg, retryOverride: retryOverride, name: name, priority: priority, poolExclude: poolExclude}
 		if effort == "" {
 			if s.provByProfile == nil {
 				s.provByProfile = map[int64]*provEntry{}
@@ -222,16 +224,22 @@ func (s *Server) providerForEffortUnlocked(id int64, effort string, source *agen
 }
 
 func (s *Server) refreshRetryPolicyProviders() bool {
+	s.cfgMu.Lock()
+	appliedID := s.llmProfileID
+	s.cfgMu.Unlock()
 	s.provCacheMu.Lock()
-	variants := map[int64][]string{}
-	for id := range s.provByProfile {
+	variants := map[int64]map[string]*provEntry{}
+	for id, entry := range s.provByProfile {
 		if id != 0 {
-			variants[id] = append(variants[id], "")
+			variants[id] = map[string]*provEntry{"": entry}
 		}
 	}
-	for key := range s.provByEffort {
+	for key, entry := range s.provByEffort {
 		if key.id != 0 {
-			variants[key.id] = append(variants[key.id], key.effort)
+			if variants[key.id] == nil {
+				variants[key.id] = map[string]*provEntry{}
+			}
+			variants[key.id][key.effort] = entry
 		}
 	}
 	s.provCacheMu.Unlock()
@@ -240,18 +248,18 @@ func (s *Server) refreshRetryPolicyProviders() bool {
 		cfg  agent.Config
 	}
 	refreshed := false
-	for id, efforts := range variants {
-		baseCfg, ok := s.loadProfileConfig(id)
-		if !ok {
-			continue
+	var appliedGlobal *provEntry
+	policy := s.retryPolicy()
+	for id, entries := range variants {
+		applied := entries[""]
+		if applied == nil {
+			applied = entries[ThinkingEffortAuto]
 		}
-		profile, err := s.m.pg.ProfileByID(id)
-		if err != nil || profile == nil {
-			continue
-		}
-		staged := make(map[string]replacement, len(efforts))
-		for _, effort := range efforts {
-			prov, cfg, err := s.buildEffortProvider(id, baseCfg, profile.Name, effort)
+		baseCfg := applied.baseCfg
+		baseCfg.Retry = resolveRetry(applied.retryOverride, policy)
+		staged := make(map[string]replacement, len(entries))
+		for effort := range entries {
+			prov, cfg, err := s.buildEffortProvider(id, baseCfg, applied.name, effort)
 			if err != nil {
 				log.Printf("[engine] rebuild provider for LLM profile %d failed: %v", id, err)
 				staged = nil
@@ -268,22 +276,22 @@ func (s *Server) refreshRetryPolicyProviders() bool {
 			s.provCacheMu.Unlock()
 			continue
 		}
-		shared.mu.Lock()
 		for effort, built := range staged {
+			entry := &provEntry{
+				prov: &profileEffortView{shared: shared.limited, provider: built.prov}, cfg: built.cfg,
+				baseCfg: baseCfg, retryOverride: applied.retryOverride,
+				name: applied.name, priority: applied.priority, poolExclude: applied.poolExclude,
+			}
 			if effort == "" {
-				if old := s.provByProfile[id]; old != nil {
-					shared.providers[effort] = built.prov
-					s.provByProfile[id] = &provEntry{prov: old.prov, cfg: built.cfg, name: profile.Name, priority: profile.Priority, poolExclude: profile.PoolExclude}
+				s.provByProfile[id] = entry
+				if id == appliedID {
+					appliedGlobal = entry
 				}
 			} else {
 				key := effortProfileKey{id: id, effort: effort}
-				if old := s.provByEffort[key]; old != nil {
-					shared.providers[effort] = built.prov
-					s.provByEffort[key] = &provEntry{prov: old.prov, cfg: built.cfg, name: profile.Name, priority: profile.Priority, poolExclude: profile.PoolExclude}
-				}
+				s.provByEffort[key] = entry
 			}
 		}
-		shared.mu.Unlock()
 		s.provCacheMu.Unlock()
 		s.profMu.Lock()
 		delete(s.profChatAgents, id)
@@ -294,6 +302,14 @@ func (s *Server) refreshRetryPolicyProviders() bool {
 		s.provCacheMu.Lock()
 		s.globalByEffort = map[string]*provEntry{}
 		s.provCacheMu.Unlock()
+	}
+	if appliedGlobal != nil {
+		s.cfgMu.Lock()
+		if s.llmOn && s.llmProfileID == appliedID {
+			s.llmCfg = appliedGlobal.cfg
+			s.llmDirect = appliedGlobal.prov
+		}
+		s.cfgMu.Unlock()
 	}
 	return refreshed
 }
