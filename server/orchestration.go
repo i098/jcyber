@@ -534,6 +534,9 @@ func (s *Server) refreshBuiltinToolSchemas() {
 	}
 	tools := append(s.orchestrationTools(), s.platformTools()...)
 	for _, t := range tools {
+		if t.Name() == "spawn_task" {
+			continue
+		}
 		schema, _ := json.Marshal(t.InputSchema())
 		if err := s.m.pg.RefreshToolDefaults(t.Name(), t.Description(), schema); err != nil {
 			log.Printf("[tools] refresh %s schema failed: %v", t.Name(), err)
@@ -571,7 +574,13 @@ func (s *Server) refreshSpawnTaskSchema() {
 		log.Printf("[tools] refresh spawn_task schema failed: %v", err)
 		return
 	}
-	if err := s.m.pg.RefreshToolDefaults(tool.Name(), tool.Description(), schema); err != nil {
+	var key string
+	if err := s.m.pg.QueryRow(`UPDATE tools SET schema=schema || jsonb_build_object(
+  'properties', ($2::jsonb->'properties') || COALESCE(schema->'properties','{}'::jsonb),
+  'required', CASE WHEN COALESCE(schema->'required','[]'::jsonb) @> '["name"]'::jsonb
+    THEN COALESCE(schema->'required','[]'::jsonb)
+    ELSE COALESCE(schema->'required','[]'::jsonb) || '["name"]'::jsonb END
+), updated_at=now() WHERE key=$1 AND system RETURNING key`, tool.Name(), string(schema)).Scan(&key); err != nil {
 		log.Printf("[tools] refresh spawn_task schema failed: %v", err)
 		return
 	}

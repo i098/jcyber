@@ -369,6 +369,89 @@ func TestRetryPolicyInvalidationKeepsProfileLimiter(t *testing.T) {
 	}
 }
 
+func TestInvalidActiveProfileSaveKeepsRunningLimiter(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v)", err)
+	}
+	defer m.Close()
+	srv, requests := effortWireServer(t)
+	defer srv.Close()
+	previous, err := m.pg.ActiveProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := &db.LLMProfile{
+		Name: fmt.Sprintf("invalid-save-%d", time.Now().UnixNano()), Format: "openai-responses",
+		BaseURL: srv.URL, Model: "profile-model", APIKey: "test-key", RatePerMinute: 1,
+		ThinkingType: "enabled", ReasoningEffort: "high", Streaming: true,
+	}
+	id, err := m.pg.SaveProfile(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if previous != nil {
+			_ = m.pg.SetActiveProfile(previous.ID)
+		} else {
+			_, _ = m.pg.Exec(`UPDATE llm_profiles SET is_default=false WHERE id=$1`, id)
+		}
+		_ = m.pg.DeleteProfile(id)
+	}()
+	if err := m.pg.SetActiveProfile(id); err != nil {
+		t.Fatal(err)
+	}
+	poolEnabled := m.LLMPoolEnabled()
+	if err := m.SetLLMPoolEnabled(false); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = m.SetLLMPoolEnabled(poolEnabled) }()
+	s := &Server{m: m, llmHealth: newLLMHealthRegistry(m.pg)}
+	cfg, ok := s.loadLLMConfig()
+	if !ok {
+		t.Fatal("active profile unavailable")
+	}
+	if err := s.applyLLM(cfg); err != nil {
+		t.Fatal(err)
+	}
+	maxProvider, _, ok := s.globalProviderForEffort(ThinkingEffortMax)
+	if !ok {
+		t.Fatal("max effort unavailable")
+	}
+	assertEffortWire(t, effortWireRequest(t, maxProvider, requests), cfg.Model, cfg.ReasoningEffort)
+	update, err := json.Marshal(map[string]any{
+		"id": id, "name": profile.Name, "format": profile.Format, "base_url": profile.BaseURL,
+		"model": profile.Model, "proxy": "://invalid", "rate_per_minute": 1, "streaming": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	s.pgSaveProfile(recorder, httptest.NewRequest(http.MethodPost, "/api/llm/profiles", bytes.NewReader(update)))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("invalid profile save: %d %s", recorder.Code, recorder.Body.String())
+	}
+	saved, err := m.pg.ProfileByID(id)
+	if err != nil || saved == nil || saved.Proxy != "" {
+		t.Fatalf("invalid proxy persisted: profile = %+v, error = %v", saved, err)
+	}
+	autoProvider, _, ok := s.globalProviderForEffort(ThinkingEffortAuto)
+	if !ok {
+		t.Fatal("auto effort unavailable after failed save")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	_, _, _, err = autoProvider.Complete(ctx, llm.CompletionRequest{})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("auto effort bypassed running limiter: %v", err)
+	}
+	select {
+	case request := <-requests:
+		t.Fatalf("auto effort sent a second request before rate limit: %v", request)
+	default:
+	}
+}
+
 func TestGlobalAutoEffortDoesNotAttributeOldConfigToNewActiveProfile(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {

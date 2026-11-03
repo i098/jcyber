@@ -1811,6 +1811,14 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	if p.Format != "openai" || p.MaxTokensField != llm.MaxTokensFieldCompletion {
 		p.MaxTokensField = ""
 	}
+	candidate := agent.ConfigFrom(p.Format, p.Model, p.BaseURL, p.APIKey, p.Proxy)
+	candidate.ThinkingType, candidate.ReasoningEffort = p.ThinkingType, p.ReasoningEffort
+	candidate.MaxTokensField, candidate.SessionHeaderKey = p.MaxTokensField, p.SessionHeaderKey
+	s.applyProfileRetry(&candidate, &p)
+	if _, err := candidate.NewProvider(); err != nil {
+		writeErr(w, 400, "provider init failed: "+err.Error())
+		return
+	}
 	s.profileReapplyMu.Lock()
 	rebuildTaskAgents := false
 	defer func() {

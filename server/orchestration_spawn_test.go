@@ -62,3 +62,88 @@ func TestSpawnTaskPreservesNamedTarget(t *testing.T) {
 	}
 	t.Fatalf("seeded assets = %+v, want %q", assets, wantURL)
 }
+
+func TestSpawnSchemaRefreshPreservesSavedEdits(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v)", err)
+	}
+	t.Cleanup(func() { m.Close() })
+	s := &Server{m: m}
+	tool := s.toolSpawnTask()
+	schema, err := json.Marshal(tool.InputSchema())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := m.pg.GetTool(tool.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	existed := before != nil
+	if !existed {
+		if err := m.pg.SeedTool(tool.Name(), tool.Description(), schema, json.RawMessage(`[]`)); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		t.Cleanup(func() {
+			agents, _ := json.Marshal(before.Agents)
+			_ = m.pg.UpdateTool(tool.Name(), before.Description, before.Schema, agents, before.Enabled)
+		})
+	}
+	if !existed {
+		t.Cleanup(func() { _, _ = m.pg.Exec(`DELETE FROM tools WHERE key=$1`, tool.Name()) })
+	}
+	const flag = "tool_schema_refresh_v10_spawn_name"
+	previous, present, err := m.pg.GetSetting(flag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if present {
+			_ = m.pg.SetSetting(flag, previous)
+		} else {
+			_, _ = m.pg.Exec(`DELETE FROM settings WHERE key=$1`, flag)
+		}
+	})
+	custom := json.RawMessage(`{"type":"object","properties":{"description":{"type":"string","description":"saved context","default":"keep me"},"goal":{"type":"string","description":"saved goal"},"timeout_seconds":{"type":"integer","default":23}},"required":["description","goal"]}`)
+	if err := m.pg.UpdateTool(tool.Name(), "saved spawn instructions", custom, json.RawMessage(`["worker"]`), false); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.pg.SetSetting(flag, "false"); err != nil {
+		t.Fatal(err)
+	}
+	s.refreshSpawnTaskSchema()
+	got, err := m.pg.GetTool(tool.Name())
+	if err != nil || got == nil {
+		t.Fatalf("spawn_task missing after refresh: %v", err)
+	}
+	if got.Description != "saved spawn instructions" || got.Enabled || len(got.Agents) != 1 || got.Agents[0] != "worker" {
+		t.Fatalf("saved tool settings changed: %+v", got)
+	}
+	var parsed struct {
+		Properties map[string]map[string]any `json:"properties"`
+		Required   []string                  `json:"required"`
+	}
+	if err := json.Unmarshal(got.Schema, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Properties["description"]["description"] != "saved context" || parsed.Properties["description"]["default"] != "keep me" || parsed.Properties["goal"]["description"] != "saved goal" || parsed.Properties["timeout_seconds"]["default"] != float64(23) {
+		t.Fatalf("saved parameter edits changed: %+v", parsed.Properties)
+	}
+	if parsed.Properties["name"]["type"] != "string" {
+		t.Fatalf("missing name parameter: %+v", parsed.Properties["name"])
+	}
+	efforts, ok := parsed.Properties["thinking_effort"]["enum"].([]any)
+	if !ok || len(efforts) != 2 || efforts[0] != ThinkingEffortMax || efforts[1] != ThinkingEffortAuto {
+		t.Fatalf("missing thinking effort options: %v", parsed.Properties["thinking_effort"])
+	}
+	names := 0
+	for _, required := range parsed.Required {
+		if required == "name" {
+			names++
+		}
+	}
+	if names != 1 {
+		t.Fatalf("required name count = %d, want 1", names)
+	}
+}
