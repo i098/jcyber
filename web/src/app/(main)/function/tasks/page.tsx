@@ -3126,6 +3126,7 @@ function CreateTaskSheet({
   const [companies, setCompanies] = React.useState<Company[]>([]);
   const [sourceTaskIDs, setSourceTaskIDs] = React.useState<string[]>([]);
   const [companyIDs, setCompanyIDs] = React.useState<number[]>([]);
+  const [thinkingEffort, setThinkingEffort] = React.useState<"auto" | "max">("max");
   const [llmProfileIDs, setLLMProfileIDs] = React.useState<string[]>([]);
   const [creating, setCreating] = React.useState(false);
   const [timeoutMin, setTimeoutMin] = React.useState(""); // 任务级超时(分钟);空/0 = 不限时
@@ -3192,6 +3193,7 @@ function CreateTaskSheet({
         categoryId: categoryID,
         description: description.trim(),
         goal: goal.trim(),
+        thinkingEffort,
         llmProfileIds: llmProfileIDs.map(Number),
         sourceTaskIds: sourceTaskIDs,
         companyIds: companyIDs,
@@ -3211,6 +3213,7 @@ function CreateTaskSheet({
       setSelectedTemplateID(null);
       setSourceTaskIDs([]);
       setCompanyIDs([]);
+      setThinkingEffort("max");
       setLLMProfileIDs([]);
       setTimeoutMin("");
       setHeartbeatMin("10");
@@ -3370,6 +3373,23 @@ function CreateTaskSheet({
                 rules, at least one must match to permit testing; otherwise testing is blocked. No allowlist is enforced
                 when no Allow rules are configured.
               </FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="thinking-effort">Thinking Effort</FieldLabel>
+              <Select
+                value={thinkingEffort}
+                onValueChange={(value) => setThinkingEffort(value === "auto" ? "auto" : "max")}
+              >
+                <SelectTrigger id="thinking-effort" className="w-full sm:w-64">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="max">Max - hard tasks</SelectItem>
+                    <SelectItem value="auto">Auto - provider default</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </Field>
             <Field>
               <FieldLabel htmlFor="llm-profiles">LLM Profile Chain</FieldLabel>

@@ -181,28 +181,30 @@ const TOOLS: Record<string, ToolDef> = {
     },
   },
   create_task: {
-    description: "Create a new jcyber task targeting a domain/host. Each target gets its own task. Set name to the short display title; description is separate long-form context, never the task name. Include a clear goal. Set thinking_effort to auto for easy jobs, leave it unset for hard ones. Returns the new task id.",
+    description: "Create a new jcyber task targeting a domain/host. Each target gets its own task. Set name to the short display title; description is separate long-form context, never the task name. Include a clear goal. Set thinking_effort to auto for easy jobs or max for hard ones. Returns the new task id.",
     parameters: {
       type: "object",
       properties: {
         name: { type: "string", description: "Task display name/title, e.g. 'example.com scan'. Put the task name here, not in description." },
         goal: { type: "string", description: "What to do against the target" },
-        description: { type: "string", description: "Optional long-form task context/instructions, separate from the display name (defaults to Untitled Task)." },
+        description: { type: "string", description: "Optional long-form task context/instructions, separate from the display name." },
         llm_profile_id: { type: "number", description: "Optional explicit LLM profile id; usually omit so the pool rotates codex/deepseek/kimi" },
         thinking_effort: { type: "string", enum: ["max", "auto"], description: "Reasoning effort for this task: omit or 'max' for hard targets (the pool runs max thinking), 'auto' for easy/quick jobs so the provider picks a cheaper default effort." },
       },
-      required: ["goal"],
+      required: ["name", "goal"],
     },
     run: async (a) => {
+      const name = str(a.name).trim();
+      if (!name) throw new Error("task name is required");
       const res = await fetch(`${JCYBER_URL}/api/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${await auth()}` },
         body: JSON.stringify({
-          name: str(a.name),
+          name,
           goal: str(a.goal),
-          description: str(a.description) || "Untitled Task",
+          description: str(a.description),
           llm_profile_id: Number(a.llm_profile_id) > 0 ? Number(a.llm_profile_id) : undefined,
-          thinking_effort: a.thinking_effort === "auto" ? "auto" : undefined,
+          thinking_effort: a.thinking_effort,
           seed_first_intent: true,
         }),
         signal: AbortSignal.timeout(15_000),

@@ -255,6 +255,7 @@ export const api = {
     categoryId?: number;
     description: string;
     goal: string;
+    thinkingEffort?: "auto" | "max";
     llmProfileIds?: number[];
     sourceTaskIds?: string[];
     companyIds?: number[];
@@ -269,6 +270,7 @@ export const api = {
       category_id: input.categoryId ?? null,
       description: input.description,
       goal: input.goal,
+      thinking_effort: input.thinkingEffort ?? "max",
       llm_profile_ids: input.llmProfileIds ?? [],
       source_task_ids: input.sourceTaskIds ?? [],
       company_ids: input.companyIds ?? [],
@@ -448,7 +450,7 @@ export const api = {
     const token = getToken();
     const r = await fetch(`/api/workspace/upload?path=${encodeURIComponent(dir)}`, {
       method: "POST",
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: fd,
     });
     if (!r.ok) throw new Error(`Upload failed: ${r.status}`);
@@ -461,7 +463,7 @@ export const api = {
     } else {
       const token = getToken();
       const r = await fetch(`/api/workspace/download?path=${encodeURIComponent(path)}`, {
-        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!r.ok) throw new Error(`Download failed: ${r.status}`);
       blob = await r.blob();
@@ -898,7 +900,7 @@ export const api = {
     const token = getToken();
     const r = await fetch(`/api/chat/upload?scope=${scope}&id=${encodeURIComponent(id)}`, {
       method: "POST",
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: fd,
     });
     if (!r.ok) throw new Error(`Upload failed: ${r.status} ${await r.text()}`);

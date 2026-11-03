@@ -1,10 +1,10 @@
 # Changelog
 ## [Unreleased] - 2026-11-03
 
-- Task thinking effort is selectable: `thinking_effort: "auto"` on task creation
-  binds the task to the active model's provider-default variant, while hard tasks
-  stay on the max-thinking rotation pool. Exposed to the iMessage front desk as a
-  `create_task` field, so the spawner picks effort by task difficulty.
+- Task thinking effort is selectable in task creation, the iMessage `create_task`
+  tool, and `spawn_task`. `auto` uses each model's provider default; `max` sends
+  maximum effort across task agents and pool fallback. Existing tasks keep their
+  profile settings.
 - iMessage bridge gains `rename_task` (via `PATCH /api/tasks/{id}`), and
   `create_task` now spells out that `name` is the display title and `description`
   is long-form context, so names stop landing in descriptions.

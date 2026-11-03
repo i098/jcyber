@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"normasdk/harness"
+	"normasdk/llm"
 	"pta/agent"
 	"pta/db"
 	"pta/sidequestion"
-	"normasdk/harness"
-	"normasdk/llm"
 )
 
 type sideHTTPProvider struct {
@@ -441,6 +441,26 @@ func TestSideRejectsDeletedOrChangedCachedProfile(t *testing.T) {
 	}
 	if _, err = f.s.sideProvider(model); err == nil {
 		t.Fatal("deleted profile remained usable from cache")
+	}
+}
+
+func TestSideAcceptsTaskEffortProfile(t *testing.T) {
+	f := newSideHTTPFixture(t)
+	p := &db.LLMProfile{Name: "btw-task-effort", Format: "openai", BaseURL: "http://fixture.invalid", APIKey: "test-only", Model: "fixture", ReasoningEffort: "high", Streaming: true}
+	id, err := f.m.pg.SaveProfile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.m.pg.DeleteProfile(id) })
+	cfg, ok := f.s.loadProfileConfig(id)
+	if !ok {
+		t.Fatal("profile unavailable")
+	}
+	for _, effort := range []string{ThinkingEffortAuto, ThinkingEffortMax} {
+		model := sideModel(resolvedEffortConfig(cfg, effort), id, p.Name)
+		if prov, err := f.s.sideProvider(model); err != nil || prov == nil {
+			t.Fatalf("side provider for %s = %v, %v", effort, prov, err)
+		}
 	}
 }
 

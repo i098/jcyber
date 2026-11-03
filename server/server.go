@@ -19,16 +19,15 @@ import (
 	"sync"
 	"time"
 
+	"normasdk/llm"
+	actool "normasdk/tool"
+	"normasdk/transcript"
 	"pta/agent"
 	"pta/db"
 	"pta/intercept"
 	"pta/llmpool"
-	"pta/llmrec"
 	"pta/report"
 	"pta/traffic"
-	"normasdk/llm"
-	actool "normasdk/tool"
-	"normasdk/transcript"
 )
 
 // BuildVersion is the backend application version, injected from cmd/jcyber at
@@ -93,14 +92,12 @@ type Server struct {
 	profMu         sync.Mutex
 	profChatAgents map[int64]*agent.ChatAgent // per-profile ChatAgent cache (chat page)
 
-	// provByProfile caches ONE provider per LLM profile id so every agent bound or
-	// pinned to the same profile shares a single provider instance — hence one rate
-	// limiter. applyLLM also resolves the persisted global-active profile through this
-	// cache, so global fallback and task chains do not accidentally double the
-	// configured request rate. Cleared on profile edits, then repopulated by active reapply.
-	provCacheMu   sync.Mutex
-	provByProfile map[int64]*provEntry
-	provCacheGen  uint64
+	provCacheMu    sync.Mutex
+	provByProfile  map[int64]*provEntry
+	provByEffort   map[effortProfileKey]*provEntry
+	provShared     map[int64]*profileEffortRouter
+	globalByEffort map[string]*provEntry
+	provCacheGen   uint64
 
 	// llmHealth is the process-wide circuit-breaker state for LLM failover (轮询).
 	// It deliberately lives OUTSIDE the provider caches: rebuilding the chain
@@ -149,7 +146,9 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		chatCancel: map[string]context.CancelCauseFunc{}, triggerQ: map[string][]triggeredRun{},
 		triggerActive: map[string]int{}, triggerCfg: map[string]triggerBehavior{},
 		profChatAgents: map[int64]*agent.ChatAgent{},
-		provByProfile:  map[int64]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
+		provByProfile:  map[int64]*provEntry{}, provByEffort: map[effortProfileKey]*provEntry{},
+		provShared:     map[int64]*profileEffortRouter{},
+		globalByEffort: map[string]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
 		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1)}
 	s.initSideQuestions()
 	// 熔断阈值/冷却是失败路径上的热参数，启动时把全局重试策略推给 Registry 一次；
@@ -435,17 +434,12 @@ func (s *Server) applyLLM(cfg agent.Config) error {
 		}
 	}
 	if prov == nil {
-		var err error
-		prov, err = cfg.NewProvider()
-		if err != nil {
-			return err
+		s.resetEnvironmentEffortProviders()
+		var ok bool
+		prov, _, ok = s.environmentProviderForEffort(cfg, "")
+		if !ok {
+			return fmt.Errorf("provider init failed for %s / %s", cfg.Provider(), cfg.Model)
 		}
-		// Non-persisted/env configs do not have a profile cache key.
-		s.cfgMu.Lock()
-		profName := s.llmProf
-		s.cfgMu.Unlock()
-		prov = llmrec.Wrap(prov, s.m.PG(), cfg.Model, profName, cfg.ThinkingType, cfg.ReasoningEffort, s.m.LLMRecordEnabled)
-		prov = bindSideProvider(prov, cfg, 0, profName)
 	}
 	s.cfgMu.Lock()
 	s.llmDirect = prov
@@ -560,40 +554,7 @@ func (s *Server) chatUnavailableReason() string {
 // bound/pinned to the same profile shares one provider instance (one rate limiter).
 // ok=false when the profile is missing/invalid → caller falls back to the global pair.
 func (s *Server) providerForProfile(id int64) (llm.Provider, agent.Config, bool) {
-	s.provCacheMu.Lock()
-	if e := s.provByProfile[id]; e != nil {
-		s.provCacheMu.Unlock()
-		return e.prov, e.cfg, true
-	}
-	generation := s.provCacheGen
-	s.provCacheMu.Unlock()
-	cfg, ok := s.loadProfileConfig(id)
-	if !ok {
-		return nil, agent.Config{}, false
-	}
-	prov, err := cfg.NewProvider()
-	if err != nil {
-		log.Printf("[engine] build provider for LLM profile %d failed: %v", id, err)
-		return nil, agent.Config{}, false
-	}
-	// Wrap with recorder, tagged with this profile's name.
-	if p, _ := s.m.pg.ProfileByID(id); p != nil {
-		prov = llmrec.Wrap(prov, s.m.PG(), cfg.Model, p.Name, cfg.ThinkingType, cfg.ReasoningEffort, s.m.LLMRecordEnabled)
-		prov = bindSideProvider(prov, cfg, id, p.Name)
-	}
-	s.provCacheMu.Lock()
-	if generation != s.provCacheGen {
-		s.provCacheMu.Unlock()
-		return s.providerForProfile(id)
-	}
-	if e := s.provByProfile[id]; e != nil { // lost the race → keep the winner
-		prov, cfg = e.prov, e.cfg
-	} else {
-		s.provByProfile[id] = &provEntry{prov: prov, cfg: cfg}
-		log.Printf("[engine] built provider for LLM profile %d (%s / %s)", id, cfg.Provider(), cfg.Model)
-	}
-	s.provCacheMu.Unlock()
-	return prov, cfg, true
+	return s.providerForProfileEffort(id, "")
 }
 
 // chatAgentForProfile returns a ChatAgent built from a specific LLM profile, cached
@@ -637,6 +598,9 @@ func (s *Server) invalidateProfileAgents() {
 	s.provCacheMu.Lock()
 	s.provCacheGen++
 	s.provByProfile = map[int64]*provEntry{}
+	s.provByEffort = map[effortProfileKey]*provEntry{}
+	s.provShared = map[int64]*profileEffortRouter{}
+	s.globalByEffort = map[string]*provEntry{}
 	s.provCacheMu.Unlock()
 	s.invalidateTaskAgents()
 }
@@ -1455,11 +1419,7 @@ type createTaskReq struct {
 	PlanHeartbeatSeconds int      `json:"plan_heartbeat_seconds"`      // planner 心跳触发间隔(秒);0/省略=默认600(10min);下限=默认=600,低于自动抬到600
 	SeedFirstIntent      *bool    `json:"seed_first_intent,omitempty"` // 创建时直接下发一条种子意图(内容=描述+目标),让 worker 免等首轮 planner 直接开跑;省略/null=默认关闭,走标准先规划再执行。显式传 true 才开(CTF 常一 work 解决时可省掉开跑前的 planner 轮)。
 	CoverageEnabled      *bool    `json:"coverage_enabled,omitempty"`  // 资产覆盖度功能;省略/null=默认开(true)。false=关闭覆盖度计算/展示/自动累积范围+隐藏 add_task_scope/list_untested_assets。company 关联不受影响。
-	// ThinkingEffort 选择任务的思考强度:
-	//   ""/"max" = 不绑定,走轮询池(池内均为 max/xhigh);
-	//   "auto"    = 绑定到当前模型的 auto 变体(不发思考字段,由端点自行决定强度),
-	//               供低难度任务省掉最大档推理的开销。
-	ThinkingEffort string `json:"thinking_effort,omitempty"`
+	ThinkingEffort       string   `json:"thinking_effort,omitempty"`
 	// InterceptRules 任务级资产拦截/允许规则(创建时录入,存 task_intercept_rules,不进全局表)。
 	InterceptRules []taskInterceptRuleReq `json:"intercept_rules,omitempty"`
 }
@@ -1476,16 +1436,10 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	if len(req.LLMProfileIDs) == 0 && req.LLMProfileID != nil {
 		req.LLMProfileIDs = []int64{*req.LLMProfileID}
 	}
-	switch strings.ToLower(strings.TrimSpace(req.ThinkingEffort)) {
-	case "", ThinkingEffortMax:
-		// 高难度路径:不绑定,由轮询池驱动(池内配置均为最高档思考)。
-	case ThinkingEffortAuto:
-		// 低难度路径:绑定到当前模型的 auto 变体;显式指定的链优先于该选择。
-		if len(req.LLMProfileIDs) == 0 {
-			if id, ok := s.autoEffortProfile(); ok {
-				req.LLMProfileIDs = []int64{id}
-			}
-		}
+	switch req.ThinkingEffort {
+	case "":
+		req.ThinkingEffort = ThinkingEffortMax
+	case ThinkingEffortMax, ThinkingEffortAuto:
 	default:
 		writeErr(w, 400, `thinking_effort must be "auto" or "max"`)
 		return
@@ -1530,6 +1484,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	t, err := s.m.CreateTaskWithOptions(req.Description, req.Goal, db.TaskCreateOptions{
 		Name: strings.TrimSpace(req.Name), CategoryID: req.CategoryID,
 		SourceTaskIDs: sourceIDs, CompanyIDs: req.CompanyIDs, LLMProfileIDs: req.LLMProfileIDs,
+		ThinkingEffort: req.ThinkingEffort,
 		TimeoutSeconds: req.TimeoutSeconds, PlanHeartbeatSeconds: req.PlanHeartbeatSeconds,
 		CoverageEnabled: req.CoverageEnabled,
 		InterceptRules:  interceptRules,

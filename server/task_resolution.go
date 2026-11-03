@@ -17,7 +17,7 @@ type taskLLMResolution struct {
 	Reason    string `json:"reason,omitempty"`
 }
 
-func (s *Server) resolutionFromProfile(p *db.LLMProfile, source string) taskLLMResolution {
+func (s *Server) resolutionFromProfile(p *db.LLMProfile, source, effort string) taskLLMResolution {
 	if p == nil {
 		return taskLLMResolution{Source: source, Reason: "LLM profile does not exist"}
 	}
@@ -33,7 +33,7 @@ func (s *Server) resolutionFromProfile(p *db.LLMProfile, source string) taskLLMR
 		result.Reason = "LLM profile has no API key"
 		return result
 	}
-	if _, _, ok := s.providerForProfile(p.ID); !ok {
+	if _, _, ok := s.providerForProfileEffort(p.ID, effort); !ok {
 		result.Reason = "Invalid or unsupported LLM profile format"
 		return result
 	}
@@ -58,7 +58,7 @@ func (s *Server) resolveTaskRoleLLM(t *Task, agentKey string) (taskLLMResolution
 			return taskLLMResolution{}, fmt.Errorf("load agent LLM profile: %w", err)
 		}
 		if p != nil {
-			resolved := s.resolutionFromProfile(p, "agent_binding")
+			resolved := s.resolutionFromProfile(p, "agent_binding", t.ThinkingEffort)
 			if resolved.Available {
 				return resolved, nil
 			}
@@ -73,14 +73,14 @@ func (s *Server) resolveTaskRoleLLM(t *Task, agentKey string) (taskLLMResolution
 		if err != nil {
 			return taskLLMResolution{}, fmt.Errorf("load task LLM profile: %w", err)
 		}
-		return s.resolutionFromProfile(p, "task_chain"), nil
+		return s.resolutionFromProfile(p, "task_chain", t.ThinkingEffort), nil
 	}
 	p, err := s.m.pg.ActiveProfile()
 	if err != nil {
 		return taskLLMResolution{}, fmt.Errorf("load global LLM profile: %w", err)
 	}
 	if p != nil {
-		resolved := s.resolutionFromProfile(p, "global_profile")
+		resolved := s.resolutionFromProfile(p, "global_profile", t.ThinkingEffort)
 		if resolved.Available {
 			return resolved, nil
 		}

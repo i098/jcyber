@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"normasdk/llm"
+	"normasdk/transcript"
 	"pta/agent"
 	"pta/db"
 	"pta/llmrec"
-	"normasdk/llm"
-	"normasdk/transcript"
 )
 
 type taskAgentBundle struct {
@@ -122,7 +122,7 @@ func (r *taskLLMRuntime) current() (taskLLMSelection, error) {
 	r.s.syncTaskLLMState(pt)
 	t, _ := r.s.m.Task(r.taskID)
 	sel := taskLLMSelection{task: t, revision: pt.LLMChainRevision}
-	if prov, cfg, ok := r.s.agentBindingProvider(r.agentKey); ok {
+	if prov, cfg, ok := r.s.agentBindingProviderEffort(r.agentKey, pt.ThinkingEffort); ok {
 		sel.provider, sel.retry = prov, cfg.Retry
 		return sel, nil
 	}
@@ -131,14 +131,14 @@ func (r *taskLLMRuntime) current() (taskLLMSelection, error) {
 			return sel, &taskLLMError{taskID: r.taskID, chainExhausted: true, cause: errors.New("all selected profiles are quota exhausted")}
 		}
 		sel.profileID = *pt.ActiveLLMProfileID
-		prov, cfg, ok := r.s.providerForProfile(sel.profileID)
+		prov, cfg, ok := r.s.providerForProfileEffort(sel.profileID, pt.ThinkingEffort)
 		if !ok {
 			return sel, fmt.Errorf("LLM profile #%d is missing or invalid", sel.profileID)
 		}
 		sel.provider, sel.retry = prov, cfg.Retry
 		return sel, nil
 	}
-	prov, cfg, ok := r.s.globalProvider()
+	prov, cfg, ok := r.s.globalProviderForEffort(pt.ThinkingEffort)
 	if !ok {
 		return sel, fmt.Errorf("task %s has no available fallback LLM provider", r.taskID)
 	}
@@ -160,15 +160,15 @@ func (r *taskLLMRuntime) activeCfg() (agent.Config, bool) {
 	if err != nil || pt == nil {
 		return agent.Config{}, false
 	}
-	if _, cfg, ok := r.s.agentBindingProvider(r.agentKey); ok {
+	if _, cfg, ok := r.s.agentBindingProviderEffort(r.agentKey, pt.ThinkingEffort); ok {
 		return cfg, true
 	}
 	if len(pt.LLMProfileIDs) > 0 && pt.ActiveLLMProfileID != nil {
-		if _, cfg, ok := r.s.providerForProfile(*pt.ActiveLLMProfileID); ok {
+		if _, cfg, ok := r.s.providerForProfileEffort(*pt.ActiveLLMProfileID, pt.ThinkingEffort); ok {
 			return cfg, true
 		}
 	}
-	if _, cfg, ok := r.s.globalProvider(); ok {
+	if _, cfg, ok := r.s.globalProviderForEffort(pt.ThinkingEffort); ok {
 		return cfg, true
 	}
 	return agent.Config{}, false
@@ -492,15 +492,19 @@ func (r *taskLLMRuntime) CompactionWindow() int {
 // fall through to the task chain. A bound profile stays exclusive unless
 // llm_pool_bind_fallback is on, which is what poolForBinding encodes.
 func (s *Server) agentBindingProvider(agentKey string) (llm.Provider, agent.Config, bool) {
+	return s.agentBindingProviderEffort(agentKey, "")
+}
+
+func (s *Server) agentBindingProviderEffort(agentKey, effort string) (llm.Provider, agent.Config, bool) {
 	id := s.effectiveProfileForAgent(agentKey, nil)
 	if id == nil {
 		return nil, agent.Config{}, false
 	}
-	prov, cfg, ok := s.providerForProfile(*id)
+	prov, cfg, ok := s.providerForProfileEffort(*id, effort)
 	if !ok {
 		return nil, agent.Config{}, false
 	}
-	return s.poolForBinding(*id, prov, cfg), cfg, true
+	return s.poolForBindingEffort(*id, prov, cfg, effort), cfg, true
 }
 
 // globalProvider returns the process-wide provider (persisted active profile or
@@ -527,13 +531,13 @@ func (s *Server) taskRuntimeAvailable(t *Task, agentKeys ...string) bool {
 	unboundReady := false
 	if len(state.ProfileIDs) > 0 {
 		if state.ActiveID != nil {
-			_, _, unboundReady = s.providerForProfile(*state.ActiveID)
+			_, _, unboundReady = s.providerForProfileEffort(*state.ActiveID, t.ThinkingEffort)
 		}
 	} else {
-		_, _, unboundReady = s.globalProvider()
+		_, _, unboundReady = s.globalProviderForEffort(t.ThinkingEffort)
 	}
 	for _, key := range agentKeys {
-		if _, _, ok := s.agentBindingProvider(key); ok {
+		if _, _, ok := s.agentBindingProviderEffort(key, t.ThinkingEffort); ok {
 			continue
 		}
 		if !unboundReady {

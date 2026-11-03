@@ -59,8 +59,8 @@ func newLLMHealthRegistry(pg *db.DB) *llmpool.Registry {
 // poolMember builds one chain member from a profile, reusing the per-profile
 // provider cache so every agent pointing at the same profile shares one provider
 // (hence one rate limiter). Returns nil when the profile can't be built.
-func (s *Server) poolMember(p *db.LLMProfile, rank int) *llmpool.Member {
-	prov, cfg, ok := s.providerForProfile(p.ID)
+func (s *Server) poolMember(p *db.LLMProfile, rank int, effort string) *llmpool.Member {
+	prov, cfg, ok := s.providerForProfileEffort(p.ID, effort)
 	if !ok {
 		return nil
 	}
@@ -92,7 +92,7 @@ func headRank(priority int) int {
 //
 // Returns nil when failover is off or the chain has fewer than two usable members
 // — callers then use the bare provider, which is byte-for-byte the old behavior.
-func (s *Server) poolChain(headID int64, headProv llm.Provider, headCfg agent.Config) *llmpool.Pool {
+func (s *Server) poolChain(headID int64, headProv llm.Provider, headCfg agent.Config, effort string) *llmpool.Pool {
 	if s.m == nil || s.m.pg == nil || !s.m.LLMPoolEnabled() {
 		return nil
 	}
@@ -134,7 +134,7 @@ func (s *Server) poolChain(headID int64, headProv llm.Provider, headCfg agent.Co
 		if p.IsDefault {
 			rank = llmpool.RankActive - 1
 		}
-		if m := s.poolMember(p, rank); m != nil {
+		if m := s.poolMember(p, rank, effort); m != nil {
 			members = append(members, m)
 		}
 	}
@@ -147,7 +147,11 @@ func (s *Server) poolChain(headID int64, headProv llm.Provider, headCfg agent.Co
 // poolForActive wraps the globally-active provider in the failover chain. Returns
 // prov unchanged when failover is off or there's nothing to fall back to.
 func (s *Server) poolForActive(activeID int64, prov llm.Provider, cfg agent.Config) llm.Provider {
-	pool := s.poolChain(activeID, prov, cfg)
+	return s.poolForActiveEffort(activeID, prov, cfg, "")
+}
+
+func (s *Server) poolForActiveEffort(activeID int64, prov llm.Provider, cfg agent.Config, effort string) llm.Provider {
+	pool := s.poolChain(activeID, prov, cfg, effort)
 	if pool == nil {
 		return prov
 	}
@@ -164,10 +168,14 @@ func (s *Server) poolForActive(activeID int64, prov llm.Provider, cfg agent.Conf
 // are on; otherwise a bound profile stays exclusive (fails hard), which is the
 // default and the documented precedence.
 func (s *Server) poolForBinding(id int64, prov llm.Provider, cfg agent.Config) llm.Provider {
+	return s.poolForBindingEffort(id, prov, cfg, "")
+}
+
+func (s *Server) poolForBindingEffort(id int64, prov llm.Provider, cfg agent.Config, effort string) llm.Provider {
 	if s.m == nil || !s.m.LLMPoolEnabled() || !s.m.LLMPoolBindFallback() {
 		return prov
 	}
-	if pool := s.poolChain(id, prov, cfg); pool != nil {
+	if pool := s.poolChain(id, prov, cfg, effort); pool != nil {
 		return pool
 	}
 	return prov

@@ -15,12 +15,12 @@ import (
 	"sync"
 	"time"
 
+	"normasdk/llm"
+	"normasdk/transcript"
 	"pta/agent"
 	"pta/db"
 	"pta/llmrec"
 	"pta/sidequestion"
-	"normasdk/llm"
-	"normasdk/transcript"
 )
 
 type sideRun struct {
@@ -48,6 +48,15 @@ func sideModel(cfg agent.Config, id int64, name string) sidequestion.Model {
 
 func bindSideProvider(p llm.Provider, cfg agent.Config, id int64, name string) llm.Provider {
 	return sidequestion.Bind(p, sideModel(cfg, id, name))
+}
+
+func sideModelEffort(cfg agent.Config, model sidequestion.Model) (string, bool) {
+	for _, effort := range []string{"", ThinkingEffortAuto, ThinkingEffortMax} {
+		if sideModel(resolvedEffortConfig(cfg, effort), model.ProfileID, model.Name).Identity == model.Identity {
+			return effort, true
+		}
+	}
+	return "", false
 }
 
 func (s *Server) initSideQuestions() {
@@ -190,16 +199,19 @@ func (s *Server) sideProvider(model sidequestion.Model) (llm.Provider, error) {
 	var cfg agent.Config
 	var ok bool
 	if model.ProfileID > 0 {
-		// Validate the persisted reference even if a previous provider is cached.
 		current, exists := s.loadProfileConfig(model.ProfileID)
-		if !exists || sideModel(current, model.ProfileID, model.Name).Identity != model.Identity {
+		effort, matched := sideModelEffort(current, model)
+		if !exists || !matched {
 			return nil, errors.New("Model profile was deleted or changed; run the main Agent first to update the context")
 		}
-		p, cfg, ok = s.providerForProfile(model.ProfileID)
+		p, cfg, ok = s.providerForProfileEffort(model.ProfileID, effort)
 	} else {
 		s.cfgMu.Lock()
 		p, cfg, ok = s.llmDirect, s.llmCfg, s.llmOn
 		s.cfgMu.Unlock()
+		if effort, matched := sideModelEffort(cfg, model); matched && effort != "" {
+			p, cfg, ok = s.globalProviderForEffort(effort)
+		}
 	}
 	if !ok || p == nil || sideModel(cfg, model.ProfileID, model.Name).Identity != model.Identity {
 		return nil, errors.New("Model profile was deleted or changed; run the main Agent first to update the context")
