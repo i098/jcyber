@@ -14,9 +14,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
-	pgdb "pta/db"
 	"github.com/klauspost/compress/zstd"
+	pgdb "pta/db"
 )
 
 const (
@@ -519,7 +520,12 @@ func stageTaskArchivePackageDelete(archivePath string, archiveID int64) (string,
 	return staged, false, nil
 }
 
-func writeTaskArchivePackage(path, payloadDir string, snapshot *pgdb.TaskArchiveSnapshot) (originalSize, compressedSize int64, checksum string, err error) {
+// writeTaskArchivePackage 把 payload 打成 tar.zst。prog 在压缩过程中按秒汇报
+// (已读字节, 总字节)，让 UI 不至于在整段压缩里一直停在 50%。
+func writeTaskArchivePackage(path, payloadDir string, snapshot *pgdb.TaskArchiveSnapshot, prog func(done, total int64)) (originalSize, compressedSize int64, checksum string, err error) {
+	if prog == nil {
+		prog = func(int64, int64) {}
+	}
 	if snapshot == nil {
 		return 0, 0, "", errors.New("nil task archive snapshot")
 	}
@@ -542,6 +548,18 @@ func writeTaskArchivePackage(path, payloadDir string, snapshot *pgdb.TaskArchive
 	if err := errors.Join(encodeErr, syncErr, manifestFile.Close()); err != nil {
 		return 0, 0, "", err
 	}
+
+	// 先数一遍 payload 的总字节：进度需要分母，manifest 也要算在内。
+	var total int64
+	_ = filepath.WalkDir(payloadDir, func(_ string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() {
+			return nil
+		}
+		if info, infoErr := entry.Info(); infoErr == nil && info.Mode().IsRegular() {
+			total += info.Size()
+		}
+		return nil
+	})
 	temporary := path + ".partial"
 	_ = os.Remove(temporary)
 	file, err := os.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, archiveFileMode)
@@ -557,14 +575,26 @@ func writeTaskArchivePackage(path, payloadDir string, snapshot *pgdb.TaskArchive
 	}()
 	hasher := sha256.New()
 	multi := io.MultiWriter(file, hasher)
+	// 等级 3 而不是 10：归档的通常是 30+ GB / 25 万文件的整棵工作目录，
+	// 10 级在 4 核机器上要跑 40+ 分钟，期间任何重启都会让整包重来。
+	// 3 级快 3-5 倍，压缩率只差几个百分点，几十分钟的"卡住"感随之消失。
 	encoder, err := zstd.NewWriter(multi,
-		zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(10)),
+		zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(3)),
 		zstd.WithEncoderCRC(true),
 	)
 	if err != nil {
 		return 0, 0, "", err
 	}
 	tarWriter := tar.NewWriter(encoder)
+	var copied int64
+	lastReport := time.Time{}
+	body := &archiveBodyWriter{w: tarWriter, n: &copied, report: func() {
+		if time.Since(lastReport) < time.Second {
+			return
+		}
+		lastReport = time.Now()
+		prog(copied, total)
+	}}
 	walkErr := filepath.WalkDir(payloadDir, func(current string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -584,6 +614,13 @@ func writeTaskArchivePackage(path, payloadDir string, snapshot *pgdb.TaskArchive
 			log.Printf("[task-archive] Skipping symbolic link (unsupported by archive, other files unaffected): %s", current)
 			return nil
 		}
+		// 同理跳过 socket / FIFO / 设备文件：tar.FileInfoHeader 遇到 socket 会直接
+		// 报 "archive/tar: sockets not supported"，几十 GB 压到最后才失败。
+		// (dev server 之类留在任务目录里的 .sock 正是这样把整个归档打挂的。)
+		if !entry.IsDir() && !info.Mode().IsRegular() {
+			log.Printf("[task-archive] Skipping %s (unsupported by archive: %s)", current, info.Mode().Type())
+			return nil
+		}
 		header, err := tar.FileInfoHeader(info, "")
 		if err != nil {
 			return err
@@ -600,7 +637,7 @@ func writeTaskArchivePackage(path, payloadDir string, snapshot *pgdb.TaskArchive
 		if err != nil {
 			return err
 		}
-		_, copyErr := io.Copy(tarWriter, input)
+		_, copyErr := io.Copy(body, input)
 		closeErr := input.Close()
 		return errors.Join(copyErr, closeErr)
 	})
@@ -634,8 +671,24 @@ func writeTaskArchivePackage(path, payloadDir string, snapshot *pgdb.TaskArchive
 	if err := os.Chmod(path, archiveFileMode); err != nil {
 		return 0, 0, "", err
 	}
+	prog(copied, total)
 	committed = true
 	return originalSize, compressedSize, checksum, nil
+}
+
+// archiveBodyWriter 统计写进 tar 的文件正文字节，并按 report 的节奏回报，
+// 这样压缩大目录时进度是连续的而不是只有开始/结束两次。
+type archiveBodyWriter struct {
+	w      io.Writer
+	n      *int64
+	report func()
+}
+
+func (b *archiveBodyWriter) Write(p []byte) (int, error) {
+	n, err := b.w.Write(p)
+	*b.n += int64(n)
+	b.report()
+	return n, err
 }
 
 func extractTaskArchivePackage(path, expectedSHA, destination string) error {

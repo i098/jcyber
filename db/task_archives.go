@@ -353,15 +353,26 @@ WHERE id=$1 RETURNING `+taskArchiveCols, id, DeleteQueued))
 }
 
 // RecoverTaskArchiveJobs keeps restore/delete resumable after an unclean shutdown.
-// An interrupted archive requires an explicit retry: automatic startup retries can
-// otherwise form a crash loop when the prior process was killed by resource limits.
+// An interrupted archive is re-queued once: packaging a multi-GB task takes tens of
+// minutes, and every console restart used to strand the job in 'archiving' until
+// someone clicked Archive again. A second interruption fails it, so a crash loop
+// (e.g. the process being killed by resource limits) still cannot spin forever.
 func (d *DB) RecoverTaskArchiveJobs() error {
 	_, err := d.Exec(`UPDATE task_archives SET
-	 state=CASE state WHEN 'archiving' THEN 'archive_failed'
-	                  WHEN 'restoring' THEN 'restore_queued'
-	                  WHEN 'deleting' THEN 'delete_queued' ELSE state END,
-	 phase='interrupted',
-	 error=CASE WHEN state='archiving' THEN 'The previous archive process exited unexpectedly; retry manually' ELSE '' END
+	 state=CASE
+	   WHEN state='archiving' AND warnings ? 'auto-retry' THEN 'archive_failed'
+	   WHEN state='archiving' THEN 'archive_queued'
+	   WHEN state='restoring' THEN 'restore_queued'
+	   WHEN state='deleting' THEN 'delete_queued' ELSE state END,
+	 phase=CASE
+	   WHEN state='archiving' AND warnings ? 'auto-retry' THEN 'interrupted'
+	   WHEN state='archiving' THEN 'queued' ELSE phase END,
+	 progress=CASE WHEN state='archiving' THEN 0 ELSE progress END,
+	 error=CASE WHEN state='archiving' AND warnings ? 'auto-retry'
+	   THEN 'The archive was interrupted twice; retry manually' ELSE '' END,
+	 warnings=CASE WHEN state='archiving' AND NOT (warnings ? 'auto-retry')
+	   THEN warnings || jsonb_build_array('auto-retry after interruption') ELSE warnings END,
+	 requested_at=CASE WHEN state='archiving' THEN now() ELSE requested_at END
 	WHERE state IN ('archiving','restoring','deleting')`)
 	return err
 }
