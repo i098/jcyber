@@ -4,12 +4,13 @@ import (
 	"archive/tar"
 	"bytes"
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
 
-	pgdb "pta/db"
 	"github.com/klauspost/compress/zstd"
+	pgdb "pta/db"
 )
 
 func TestTaskArchivePackageFilesRoundTrip(t *testing.T) {
@@ -59,7 +60,7 @@ func TestTaskArchivePackageFilesRoundTrip(t *testing.T) {
 		FormatVersion: pgdb.TaskArchiveFormatVersion, TaskID: 42, ExplorationID: explorationID,
 		StreamedTables: map[string]string{"llm_records": pgdb.TaskArchiveLLMRecordsPath},
 	}
-	original, compressed, checksum, err := writeTaskArchivePackage(archivePath, stage.payload, snapshot)
+	original, compressed, checksum, err := writeTaskArchivePackage(archivePath, stage.payload, snapshot, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +94,34 @@ func TestTaskArchivePackageFilesRoundTrip(t *testing.T) {
 		t.Fatal("checksum mismatch was accepted")
 	}
 }
+func TestTaskArchivePackageReportsCompressionProgress(t *testing.T) {
+	payload := t.TempDir()
+	big := make([]byte, 8192)
+	for i, body := range [][]byte{[]byte("alpha"), big} {
+		if err := os.WriteFile(filepath.Join(payload, "f"+string(rune('0'+i))+".bin"), body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := int64(5 + len(big))
+	var calls int
+	var done, total int64
+	original, _, _, err := writeTaskArchivePackage(filepath.Join(t.TempDir(), "p.tar.zst"), payload,
+		&pgdb.TaskArchiveSnapshot{FormatVersion: pgdb.TaskArchiveFormatVersion}, func(soFar, all int64) {
+			calls++
+			if soFar < done {
+				t.Fatalf("progress went backwards: %d after %d", soFar, done)
+			}
+			done, total = soFar, all
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The final report covers everything that goes into the archive (file bodies
+	// plus manifest.json), so it must match the returned original size.
+	if calls == 0 || done != original || total != original || done <= files {
+		t.Fatalf("progress calls=%d done=%d total=%d original=%d (files=%d)", calls, done, total, original, files)
+	}
+}
 
 func TestTaskArchivePackageSkipsSymlink(t *testing.T) {
 	dataDir := t.TempDir()
@@ -111,7 +140,7 @@ func TestTaskArchivePackageSkipsSymlink(t *testing.T) {
 
 	archivePath := filepath.Join(dataDir, "archive.tar.zst")
 	snapshot := &pgdb.TaskArchiveSnapshot{FormatVersion: pgdb.TaskArchiveFormatVersion, TaskID: 42}
-	_, _, checksum, err := writeTaskArchivePackage(archivePath, payload, snapshot)
+	_, _, checksum, err := writeTaskArchivePackage(archivePath, payload, snapshot, nil)
 	if err != nil {
 		t.Fatalf("archive should skip symlink, not fail: %v", err)
 	}
@@ -124,6 +153,44 @@ func TestTaskArchivePackageSkipsSymlink(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(extracted, "link.txt")); !os.IsNotExist(err) {
 		t.Fatalf("symlink should have been skipped, but link.txt exists: %v", err)
+	}
+}
+
+func TestTaskArchivePackageSkipsSocket(t *testing.T) {
+	// sun_path 在 macOS 上只有 104 字节，t.TempDir() 的路径太长，socket 建不出来。
+	dataDir, err := os.MkdirTemp("", "jcs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dataDir) })
+	payload := filepath.Join(dataDir, "p")
+	if err := os.MkdirAll(payload, archiveDirMode); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(payload, "keep.txt"), []byte("keep me"), archiveFileMode); err != nil {
+		t.Fatal(err)
+	}
+	// 任务目录里残留的 unix socket 曾让 tar.FileInfoHeader 报
+	// "archive/tar: sockets not supported"，整个归档在压缩末尾失败。
+	sock := filepath.Join(payload, "dev.sock")
+	l, listenErr := net.Listen("unix", sock)
+	if listenErr != nil {
+		t.Skipf("unix sockets unsupported on this platform: %v", listenErr)
+	}
+	defer l.Close()
+
+	archivePath := filepath.Join(dataDir, "archive.tar.zst")
+	snapshot := &pgdb.TaskArchiveSnapshot{FormatVersion: pgdb.TaskArchiveFormatVersion, TaskID: 42}
+	_, _, checksum, err := writeTaskArchivePackage(archivePath, payload, snapshot, nil)
+	if err != nil {
+		t.Fatalf("archive should skip the socket, not fail: %v", err)
+	}
+	extracted := filepath.Join(dataDir, "restore")
+	if err := extractTaskArchivePackage(archivePath, checksum, extracted); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(filepath.Join(extracted, "keep.txt")); err != nil || string(got) != "keep me" {
+		t.Fatalf("regular file not archived: got=%q err=%v", got, err)
 	}
 }
 

@@ -188,8 +188,19 @@ func (s *Server) archiveTask(job *pgdb.TaskArchive) (runErr error) {
 	if err = s.evidenceStore().CopySnapshots(s.ctx, evidenceSnapshots, filepath.Join(fileStage.payload, "evidence")); err != nil {
 		return err
 	}
+	// compress 阶段要吃掉整个包的时间；把已读字节映射到 50..67，否则 UI 会
+	// 在这几十分钟里一直显示 50%，看起来就像卡死了。
 	_ = s.m.pg.UpdateTaskArchiveProgress(job.ID, "compress", 50)
-	originalSize, compressedSize, checksum, err := writeTaskArchivePackage(archivePath, fileStage.payload, snapshot)
+	originalSize, compressedSize, checksum, err := writeTaskArchivePackage(archivePath, fileStage.payload, snapshot, func(done, total int64) {
+		pct := 50
+		if total > 0 {
+			pct = 50 + int(17*done/total)
+			if pct > 67 {
+				pct = 67
+			}
+		}
+		_ = s.m.pg.UpdateTaskArchiveProgress(job.ID, "compress", pct)
+	})
 	if err != nil {
 		return err
 	}

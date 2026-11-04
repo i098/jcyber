@@ -111,6 +111,24 @@ function getToken(): string | null {
   return localStorage.getItem("jcyber_token");
 }
 
+// downloadFile 让浏览器自己去取文件：把同一个 URL 挂到 <a download> 上点击。
+//
+// 旧写法是 fetch → blob → createObjectURL → click → 立刻 revokeObjectURL。走这条
+// 路的下载会在 Chrome/Dia 里变成 "Unconfirmed <id>.crdownload"：字节全到了
+// (界面显示 19.3/19.3 MB)，但目标路径始终确定不下来，下载就永远挂在那里。
+// 直接把 URL 交给浏览器就没有这一步，也不必先把几十 MB 读进内存。token 走
+// ?token=，因为 <a> 带不了 Authorization 头(后端 extractToken 认这个参数)。
+function downloadFile(url: string, fallbackName: string) {
+  const token = getToken();
+  const href = token ? `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}` : url;
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = fallbackName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 export async function http<T>(path: string, init?: RequestInit): Promise<T> {
   if (MOCK) return mockHandle<T>(init?.method ?? "GET", path, init?.body ?? null);
   const token = getToken();
@@ -457,25 +475,20 @@ export const api = {
     return r.json() as Promise<{ uploaded: number }>;
   },
   workspaceDownload: async (path: string) => {
-    let blob: Blob;
     if (MOCK) {
-      blob = new Blob([`(demo) Sample download content for ${path}.`], { type: "text/plain" });
-    } else {
-      const token = getToken();
-      const r = await fetch(`/api/workspace/download?path=${encodeURIComponent(path)}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!r.ok) throw new Error(`Download failed: ${r.status}`);
-      blob = await r.blob();
+      const objUrl = URL.createObjectURL(
+        new Blob([`(demo) Sample download content for ${path}.`], { type: "text/plain" }),
+      );
+      const a = document.createElement("a");
+      a.href = objUrl;
+      a.download = path.split("/").pop() || "download";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(objUrl), 1000);
+      return;
     }
-    const objUrl = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = objUrl;
-    a.download = path.split("/").pop() || "download";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(objUrl);
+    downloadFile(`/api/workspace/download?path=${encodeURIComponent(path)}`, path.split("/").pop() || "download");
   },
 
   // ---- assets ----
@@ -575,24 +588,8 @@ export const api = {
     } else if (opts.scope === "filtered" && opts.filters) {
       for (const [k, v] of findingFilterParams(opts.filters)) p.set(k, v);
     }
-    const token = getToken();
-    const r = await fetch(`/api/exploration/findings/export?${p.toString()}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!r.ok) throw new Error(`export: ${r.status}`);
-    const blob = await r.blob();
-    // 文件名优先取后端 Content-Disposition,取不到则用默认名。
-    const disp = r.headers.get("Content-Disposition") ?? "";
-    const m = disp.match(/filename="?([^"]+)"?/);
-    const filename = m?.[1] ?? `findings-export`;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    // 文件名由后端的 Content-Disposition 决定,直接导航也就省了先读成 blob。
+    downloadFile(`/api/exploration/findings/export?${p.toString()}`, "findings-export");
   },
   getFinding: (id: string, contextTaskId?: string) =>
     get<Finding>(
