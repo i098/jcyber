@@ -360,17 +360,17 @@ WHERE id=$1 RETURNING `+taskArchiveCols, id, DeleteQueued))
 func (d *DB) RecoverTaskArchiveJobs() error {
 	_, err := d.Exec(`UPDATE task_archives SET
 	 state=CASE
-	   WHEN state='archiving' AND warnings ? 'auto-retry' THEN 'archive_failed'
+	   WHEN state='archiving' AND warnings ? 'auto-retry after interruption' THEN 'archive_failed'
 	   WHEN state='archiving' THEN 'archive_queued'
 	   WHEN state='restoring' THEN 'restore_queued'
 	   WHEN state='deleting' THEN 'delete_queued' ELSE state END,
 	 phase=CASE
-	   WHEN state='archiving' AND warnings ? 'auto-retry' THEN 'interrupted'
+	   WHEN state='archiving' AND warnings ? 'auto-retry after interruption' THEN 'interrupted'
 	   WHEN state='archiving' THEN 'queued' ELSE phase END,
 	 progress=CASE WHEN state='archiving' THEN 0 ELSE progress END,
-	 error=CASE WHEN state='archiving' AND warnings ? 'auto-retry'
+	 error=CASE WHEN state='archiving' AND warnings ? 'auto-retry after interruption'
 	   THEN 'The archive was interrupted twice; retry manually' ELSE '' END,
-	 warnings=CASE WHEN state='archiving' AND NOT (warnings ? 'auto-retry')
+	 warnings=CASE WHEN state='archiving' AND NOT (warnings ? 'auto-retry after interruption')
 	   THEN warnings || jsonb_build_array('auto-retry after interruption') ELSE warnings END,
 	 requested_at=CASE WHEN state='archiving' THEN now() ELSE requested_at END
 	WHERE state IN ('archiving','restoring','deleting')`)

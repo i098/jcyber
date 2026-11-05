@@ -377,7 +377,7 @@ func TestTaskArchiveBlockersIgnoreQueuedDependents(t *testing.T) {
 	}
 }
 
-func TestRecoverInterruptedArchiveRequiresManualRetry(t *testing.T) {
+func TestRecoverInterruptedArchiveRetriesOnceThenFails(t *testing.T) {
 	d, err := Open(testDSN(t))
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
@@ -401,6 +401,9 @@ func TestRecoverInterruptedArchiveRequiresManualRetry(t *testing.T) {
 	if _, err := d.Exec(`UPDATE task_archives SET state=$2,phase='snapshot_database',progress=10 WHERE id=$1`, queued.ID, Archiving); err != nil {
 		t.Fatal(err)
 	}
+
+	// First interruption: re-queue, so a console restart resumes instead of
+	// stranding the job until someone clicks Archive again.
 	if err := d.RecoverTaskArchiveJobs(); err != nil {
 		t.Fatal(err)
 	}
@@ -408,8 +411,26 @@ func TestRecoverInterruptedArchiveRequiresManualRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if recovered == nil || recovered.State != ArchiveFailed || recovered.Phase != "interrupted" || recovered.Error == "" {
-		t.Fatalf("recovered archive=%+v, want explicit-retry failure", recovered)
+	if recovered == nil || recovered.State != ArchiveQueued || recovered.Phase != "queued" || recovered.Progress != 0 {
+		t.Fatalf("recovered archive=%+v, want re-queued", recovered)
+	}
+	if !strings.Contains(string(recovered.Warnings), "auto-retry") {
+		t.Fatalf("warnings=%s, want auto-retry marker", recovered.Warnings)
+	}
+
+	// Second interruption: fail, so a crash loop cannot spin forever.
+	if _, err := d.Exec(`UPDATE task_archives SET state=$2,phase='compress',progress=50 WHERE id=$1`, queued.ID, Archiving); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.RecoverTaskArchiveJobs(); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := d.GetTaskArchive(queued.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed == nil || failed.State != ArchiveFailed || failed.Phase != "interrupted" || failed.Error == "" {
+		t.Fatalf("recovered archive=%+v, want explicit-retry failure", failed)
 	}
 }
 
