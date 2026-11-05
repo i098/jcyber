@@ -117,7 +117,13 @@ export default function LoginPage() {
           <div className="absolute size-60 rounded-full border border-primary-foreground/15" />
           <div className="absolute size-40 rounded-full border border-primary-foreground/20" />
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="jcyber" width={112} height={112} className="relative size-28 object-contain brightness-0 invert" />
+          <img
+            src="/logo.png"
+            alt="jcyber"
+            width={112}
+            height={112}
+            className="relative size-28 object-contain brightness-0 invert"
+          />
         </div>
       </div>
 
