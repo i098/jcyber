@@ -23,6 +23,27 @@ playwright-cli screenshot
 playwright-cli close
 ```
 
+## Clicks that do nothing
+
+A server-rendered page shows its label long before React attaches handlers, so a
+click inside that window is **silently dropped** — no error, no navigation, no
+console message. Measured on `vercel.com/signup` through a residential proxy:
+"Continue with Email" was visible at 2.3 s, the element carried React props only
+at 7.1 s; the click at 2.3 s did nothing, the identical click after 7.1 s opened
+the form.
+
+- "The label is visible" is NOT "the page is ready". Neither is a mounted
+  `window.next` (`typeof window.next === "object"` was true the whole time).
+- Readiness probe, when you can run JS: the target carries React props only
+  after hydration —
+  `Object.keys(el).some(k => k.startsWith("__reactProps$"))`.
+- Every click that should change the UI needs an assertion afterwards (new input,
+  new snapshot node, new URL). If nothing changed: wait ~500 ms, click again,
+  up to ~15 s. A dead-looking button on a first click is usually this, not a
+  broken page.
+- Never conclude "the button does nothing / the page is broken" without that
+  retry loop and a snapshot proving the state stayed put.
+
 ## Commands
 
 ### Core
