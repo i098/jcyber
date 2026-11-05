@@ -2,10 +2,11 @@
 name: watch-video
 description: >
   Watch a video file or URL and report what happens in it. Use when the user sends a
-  video, a screen recording, a clip, or a link to one (YouTube, Loom, X, a direct
-  .mp4) and asks what is in it, what was said, what is on screen, or to summarize it.
-  Extracts the audio transcript, OCRs the on-screen text at keyframes, and returns a
-  timestamped digest.
+  video, a screen recording, a clip, an Instagram reel, or a link to one (YouTube,
+  Loom, X, TikTok, a direct .mp4) and asks what is in it, what was said, what is on
+  screen, or to summarize it. Extracts the audio transcript, OCRs the on-screen text
+  at keyframes, and returns a timestamped digest. Public Instagram reels work without
+  logging in.
 ---
 
 # Watch video
