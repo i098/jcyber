@@ -3,29 +3,23 @@ import { imessage } from "@spectrum-ts/imessage";
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { adapter, modelChain } from "./llm";
 import { UniChat } from "./unichat";
 
 // Layered front desk:
-//   you <-> frontdesk (deepseek-flash on deepseekv4pro, no thinking — instant acks)
-//   frontdesk -> dispatch(prompt) -> subagent (deepseek-flash, thinking on)
+//   you <-> frontdesk (deepseek-flash first, then any configured fallback — instant acks)
+//   frontdesk -> dispatch(prompt) -> subagent (same chain, thinking on where supported)
 //   subagent prompt -> jcyber (Auto agent conversation / direct reads)
 
 const JCYBER_URL = process.env.JCYBER_URL ?? "http://127.0.0.1:8787";
 const JCYBER_USER = process.env.JCYBER_USER ?? "jcyber";
 const JCYBER_PASSWORD = process.env.JCYBER_PASSWORD ?? "pentest-local-2026";
 
-const MODEL_FRONT = "deepseek-flash";
-const MODEL_DEEP = "deepseek-flash";
-const front = new OpenAI({
-  baseURL: "https://api.deepseekv4pro.com/v1",
-  apiKey: process.env.DEEPSEEK_V4PRO_API_KEY ?? "",
-  timeout: 90_000,
-  maxRetries: 0,
-});
-const deep = new OpenAI({
-  baseURL: "https://api.deepseekv4pro.com/v1",
-  apiKey: process.env.DEEPSEEK_V4PRO_API_KEY ?? "",
-});
+const MODEL_FRONT = process.env.DEEPSEEK_V4PRO_MODEL ?? "deepseek-flash";
+// One dead provider must not silence iMessage: each role walks its chain and
+// the first provider that answers wins (see llm.ts).
+const front = adapter(modelChain("front")) as unknown as OpenAI;
+const deep = adapter(modelChain("deep")) as unknown as OpenAI;
 
 const record = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? v as Record<string, unknown> : {});
 const str = (v: unknown, fallback = ""): string => (typeof v === "string" ? v : fallback);
@@ -304,9 +298,10 @@ The front desk will text it to the user.` },
     { role: "user", content: prompt },
   ];
   for (let turn = 0; turn < 8; turn++) {
-    // DeepSeek-only extras ride in the body object; the library type doesn't know them
+    // The chain adds each provider's own extras (deepseek's thinking effort,
+    // none for plain OpenAI models); `model` here is only a fallback.
     const r = await deep.chat.completions.create(
-      { model: MODEL_DEEP, messages, tools: toolSpecs(), thinking: { type: "enabled" }, reasoning_effort: "high" } as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
+      { model: MODEL_FRONT, messages, tools: toolSpecs() } as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
     );
     const m = r.choices[0]?.message;
     if (!m) return "(no reply)";
