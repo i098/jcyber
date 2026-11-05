@@ -6,32 +6,45 @@ import (
 	"fmt"
 )
 
-// testLoginIdentityJSON is the shipped definition of the test_login_identity
-// script tool: disposable login email + a pinned geonode sticky egress session.
-// See db/tools.go SeedCustomTool for the first-insert-only policy.
+// Shipped custom tools: definitions live next to this file, so a fresh install
+// gets them without an import step. Each is inserted ONCE (versioned settings
+// flag + ON CONFLICT DO NOTHING), which keeps later UI edits, disables and
+// deletions intact across restarts — same policy as SeedTool for built-ins.
 //
 //go:embed test_login_identity.json
 var testLoginIdentityJSON []byte
 
-// SeedTestLoginIdentity inserts the custom test_login_identity tool ONCE on a
-// fresh database. Gated by a settings flag and ON CONFLICT DO NOTHING, so a user
-// editing (or deleting) the tool in the UI is never overwritten or resurrected on
-// restart — same policy as SeedTool for built-ins.
-func (d *DB) SeedTestLoginIdentity() error {
-	const flag = "test_login_identity_tool_v1"
-	if v, _, _ := d.GetSetting(flag); v == "true" {
-		return nil
+//go:embed gmail_read.json
+var gmailReadJSON []byte
+
+var shippedCustomTools = []struct {
+	flag string
+	data []byte
+}{
+	{"test_login_identity_tool_v1", testLoginIdentityJSON},
+	{"gmail_read_tool_v1", gmailReadJSON},
+}
+
+// SeedCustomTools installs every shipped custom tool that has not been seeded yet.
+func (d *DB) SeedCustomTools() error {
+	for _, st := range shippedCustomTools {
+		if v, _, _ := d.GetSetting(st.flag); v == "true" {
+			continue
+		}
+		var t Tool
+		if err := json.Unmarshal(st.data, &t); err != nil {
+			return fmt.Errorf("%s seed: %w", st.flag, err)
+		}
+		agents, err := json.Marshal(t.Agents)
+		if err != nil {
+			return fmt.Errorf("%s seed: %w", t.Key, err)
+		}
+		if err := d.SeedCustomTool(t.Key, t.Description, t.Schema, agents, t.Kind, t.Exec, t.Deferred); err != nil {
+			return fmt.Errorf("%s seed: %w", t.Key, err)
+		}
+		if err := d.SetSetting(st.flag, "true"); err != nil {
+			return fmt.Errorf("%s seed: %w", t.Key, err)
+		}
 	}
-	var t Tool
-	if err := json.Unmarshal(testLoginIdentityJSON, &t); err != nil {
-		return fmt.Errorf("test_login_identity seed: %w", err)
-	}
-	agents, err := json.Marshal(t.Agents)
-	if err != nil {
-		return fmt.Errorf("test_login_identity seed: %w", err)
-	}
-	if err := d.SeedCustomTool(t.Key, t.Description, t.Schema, agents, t.Kind, t.Exec, t.Deferred); err != nil {
-		return fmt.Errorf("test_login_identity seed: %w", err)
-	}
-	return d.SetSetting(flag, "true")
+	return nil
 }

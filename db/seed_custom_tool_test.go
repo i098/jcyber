@@ -19,12 +19,21 @@ func TestSeedTestLoginIdentity(t *testing.T) {
 	reset := func() {
 		_ = d.DeleteCustomTool(key)
 		_, _ = d.Exec(`DELETE FROM settings WHERE key=$1`, flag)
+		_ = d.DeleteCustomTool("gmail_read")
+		_, _ = d.Exec(`DELETE FROM settings WHERE key=$1`, "gmail_read_tool_v1")
 	}
 	reset()
 	defer reset()
 
-	if err := d.SeedTestLoginIdentity(); err != nil {
+	if err := d.SeedCustomTools(); err != nil {
 		t.Fatalf("seed: %v", err)
+	}
+	gm, err := d.GetTool("gmail_read")
+	if err != nil || gm == nil {
+		t.Fatalf("gmail_read after seed: %v %v", gm, err)
+	}
+	if gm.System || gm.Kind != "script" || len(gm.Exec) == 0 {
+		t.Fatalf("gmail_read seeded wrong: system=%v kind=%q exec=%d", gm.System, gm.Kind, len(gm.Exec))
 	}
 	got, err := d.GetTool(key)
 	if err != nil || got == nil {
@@ -51,7 +60,7 @@ func TestSeedTestLoginIdentity(t *testing.T) {
 		t.Fatalf("edit: %v", err)
 	}
 	_, _ = d.Exec(`DELETE FROM settings WHERE key=$1`, flag)
-	if err := d.SeedTestLoginIdentity(); err != nil {
+	if err := d.SeedCustomTools(); err != nil {
 		t.Fatalf("re-seed: %v", err)
 	}
 	got, _ = d.GetTool(key)
@@ -64,7 +73,7 @@ func TestSeedTestLoginIdentity(t *testing.T) {
 	if err := d.DeleteCustomTool(key); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if err := d.SeedTestLoginIdentity(); err != nil {
+	if err := d.SeedCustomTools(); err != nil {
 		t.Fatalf("seed after delete: %v", err)
 	}
 	got, _ = d.GetTool(key)

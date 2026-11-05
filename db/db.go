@@ -282,10 +282,10 @@ ON CONFLICT (name) DO NOTHING`,
 	if err := d.seedDefaultAssetInterceptRules(); err != nil {
 		return fmt.Errorf("seed asset intercept rules: %w", err)
 	}
-	// Seed the custom test_login_identity tool (disposable inbox + pinned sticky
-	// egress) once, so fresh installs get it without a manual import.
-	if err := d.SeedTestLoginIdentity(); err != nil {
-		return fmt.Errorf("seed test_login_identity tool: %w", err)
+	// Seed the shipped custom tools (disposable inbox + pinned sticky egress,
+	// Gmail reader) once, so fresh installs get them without a manual import.
+	if err := d.SeedCustomTools(); err != nil {
+		return fmt.Errorf("seed custom tools: %w", err)
 	}
 	return nil
 }
