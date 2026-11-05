@@ -1,4 +1,21 @@
 # Changelog
+## [Unreleased] - 2026-11-05
+
+- `test_login_identity` ships with the app (seeded once, editable afterwards).
+  It now returns a `sticky_proxy` next to every identity: a geonode sticky
+  session whose egress IP is verified pinned across two probes. Signup, the
+  verification click and the login all run from one IP, which is what keeps
+  `cf_clearance` (IP+UA bound) alive instead of dying on a rotating exit.
+- Egress fallback chain, in Go: webshare first, geonode when webshare is out of
+  quota (402/407, or a reset caught by the 15 s probe), and a pinned sticky
+  session for a host that answered a Cloudflare challenge. Configured by the
+  `egress_chain` setting; per-request upstream selection, no sidecar process.
+- `jc-proxy.sh auto|webshare|geonode|direct|status` flips the egress and rebuilds
+  agents in place, so switching modes no longer needs the dashboard.
+- `geo-relay.py` adds Proxy-Authorization for clients that cannot pass proxy
+  credentials themselves (Chrome's `--proxy-server`), so a browser can reach a
+  credentialed upstream.
+
 ## [Unreleased] - 2026-11-03
 
 - Task thinking effort is selectable in task creation, the iMessage `create_task`

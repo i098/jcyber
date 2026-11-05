@@ -42,6 +42,27 @@ ON CONFLICT (key) DO NOTHING`, key, desc, schema, agents)
 	return err
 }
 
+// SeedCustomTool inserts a user-editable (system=false) tool's shipped defaults
+// ONCE, with the same never-overwrite policy as SeedTool: a row the user has
+// edited, disabled or deleted stays exactly as they left it, and the versioned
+// settings flag in the caller decides whether the seed runs at all.
+func (d *DB) SeedCustomTool(key, desc string, schema, agents json.RawMessage, kind string, exec json.RawMessage, deferred bool) error {
+	if len(schema) == 0 {
+		schema = json.RawMessage("{}")
+	}
+	if len(agents) == 0 {
+		agents = json.RawMessage("[]")
+	}
+	if len(exec) == 0 {
+		exec = json.RawMessage("{}")
+	}
+	_, err := d.Exec(`
+INSERT INTO tools(key, system, description, schema, agents, enabled, kind, exec, deferred)
+VALUES ($1, false, $2, $3, $4, true, $5, $6, $7)
+ON CONFLICT (key) DO NOTHING`, key, desc, schema, agents, kind, exec, deferred)
+	return err
+}
+
 // AddAgentToToolBinding adds an agent key to the given tools' `agents` arrays if
 // not already present (idempotent). Used to give the built-in Auto agent its
 // default toolset on existing DBs.

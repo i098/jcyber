@@ -30,11 +30,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"pta/db"
-	"normasdk/permission"
-	actool "normasdk/tool"
 	mproxy "github.com/lqqyt2423/go-mitmproxy/proxy"
 	_ "modernc.org/sqlite"
+	"normasdk/permission"
+	actool "normasdk/tool"
+	"pta/db"
 )
 
 const indexSchema = `
@@ -170,6 +170,9 @@ type Traffic struct {
 	// transparent-passthrough paths honor it (go-mitmproxy's getUpstreamConn),
 	// so no host escapes it. Hot-swappable at runtime via SetUpstreamProxy.
 	upstream atomic.Pointer[url.URL]
+	// egress is the optional ws -> geo -> sticky fallback chain (see egress.go).
+	// When set it picks the upstream per request and wins over `upstream`.
+	egress atomic.Pointer[egressChain]
 }
 
 // Open initializes the traffic tree, blob store and SQLite index under dir.
@@ -218,7 +221,7 @@ func Open(dir, addr string) (*Traffic, error) {
 	// a direct dial. When a global egress proxy IS configured (SetUpstreamProxy),
 	// every captured request — intercepted AND transparently tunneled — is
 	// forwarded through it instead, so no host leaks the real source IP.
-	p.SetUpstreamProxy(func(*http.Request) (*url.URL, error) { return t.upstream.Load(), nil })
+	p.SetUpstreamProxy(func(req *http.Request) (*url.URL, error) { return t.pickUpstream(req), nil })
 	// Fail-open: MITM every host by default, EXCEPT ones a prior request proved we
 	// can't intercept without breaking (see maybePassthrough). Those are tunneled
 	// transparently so the request still reaches the target instead of being killed.
@@ -393,6 +396,7 @@ func (s *sink) Response(f *mproxy.Flow) {
 	if f.Request == nil || f.Response == nil {
 		return
 	}
+	s.t.noteEgress(f)
 	s.t.record(f)
 }
 
@@ -400,7 +404,10 @@ func (s *sink) Response(f *mproxy.Flow) {
 // the failure looks proxy/protocol-caused (h2 quirks, HEAD-with-body, protocol
 // errors) — not a plain target-unreachable error — we flag the host for
 // transparent passthrough so future requests to it succeed instead of dying.
-func (s *sink) RequestError(f *mproxy.Flow, err error) { s.t.maybePassthrough(f, err) }
+func (s *sink) RequestError(f *mproxy.Flow, err error) {
+	s.t.noteEgressError(f, err)
+	s.t.maybePassthrough(f, err)
+}
 
 // maybePassthrough marks a host to be tunneled transparently on the next
 // connection, but only for errors the proxy itself caused — a target that is

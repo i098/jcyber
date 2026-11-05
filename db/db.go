@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"pta/config"
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib" // pgx database/sql driver ("pgx")
+	"pta/config"
 )
 
 //go:embed schema.sql
@@ -281,6 +281,11 @@ ON CONFLICT (name) DO NOTHING`,
 	}
 	if err := d.seedDefaultAssetInterceptRules(); err != nil {
 		return fmt.Errorf("seed asset intercept rules: %w", err)
+	}
+	// Seed the custom test_login_identity tool (disposable inbox + pinned sticky
+	// egress) once, so fresh installs get it without a manual import.
+	if err := d.SeedTestLoginIdentity(); err != nil {
+		return fmt.Errorf("seed test_login_identity tool: %w", err)
 	}
 	return nil
 }

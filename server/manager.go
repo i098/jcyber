@@ -246,6 +246,9 @@ type Manager struct {
 	// capture is on it becomes the MITM's upstream; when capture is off it is
 	// injected into agent bash env / WebFetch directly. See ProxyAddr.
 	globalProxy string
+	// egressChain is the JSON fallback chain (ws -> geo -> sticky) applied to the
+	// recording proxy's upstream. Empty = single globalProxy / direct.
+	egressChain string
 }
 
 // Settings keys the UI toggles at runtime.
@@ -261,6 +264,11 @@ const (
 	// (http/https/socks5). Empty = direct. Distinct from web_search_proxy (which
 	// only routes the search backend) and the per-profile LLM proxy.
 	settingGlobalProxy = "global_proxy"
+	// settingEgressChain is the JSON fallback chain ({"ws":..,"geo":..,"sticky":..})
+	// used instead of a single global proxy: webshare first, geonode when webshare
+	// is out of quota, and a pinned sticky session for hosts that answer a
+	// Cloudflare challenge. Empty = no chain (global_proxy / direct applies).
+	settingEgressChain = "egress_chain"
 	settingWorkers     = "workers"
 	settingLLMRecord   = "llm_record"
 	// LLM 轮询(故障转移)。默认关闭——开启后走「全局激活配置」的 agent 在当前配置
@@ -438,6 +446,14 @@ func NewManager(dir, proxyAddr string) (*Manager, error) {
 	if m.traffic != nil {
 		if err := m.traffic.SetUpstreamProxy(m.globalProxy); err != nil {
 			log.Printf("[proxy] Invalid global proxy %q, ignored: %v", m.globalProxy, err)
+		}
+	}
+	if v, ok, _ := pg.GetSetting(settingEgressChain); ok && strings.TrimSpace(v) != "" {
+		m.egressChain = strings.TrimSpace(v)
+	}
+	if m.traffic != nil && m.egressChain != "" {
+		if err := m.traffic.SetEgressChain(m.egressChain); err != nil {
+			log.Printf("[egress] Invalid chain %q, ignored: %v", m.egressChain, err)
 		}
 	}
 	m.enrich = enrich.New(m.assets, m.ProxyAddr, 4)
@@ -799,6 +815,38 @@ func (m *Manager) SetGlobalProxy(raw string) error {
 	// Keep the browser MCP's egress in sync with the new global proxy too.
 	m.syncBrowserMCPProxy()
 	return nil
+}
+
+// EgressChain returns the configured fallback chain JSON (empty = none).
+func (m *Manager) EgressChain() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.egressChain
+}
+
+// SetEgressChain validates, persists and applies the ws -> geo -> sticky chain.
+// Hot: the next captured request uses it. Empty clears it, falling back to
+// global_proxy (or direct).
+func (m *Manager) SetEgressChain(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if m.traffic != nil {
+		if err := m.traffic.SetEgressChain(raw); err != nil {
+			return err
+		}
+		return m.persistEgressChain(raw)
+	}
+	// Traffic capture off: validate through a throwaway apply to keep the API honest.
+	m.mu.Lock()
+	m.egressChain = raw
+	m.mu.Unlock()
+	return m.persistEgressChain(raw)
+}
+
+func (m *Manager) persistEgressChain(raw string) error {
+	m.mu.Lock()
+	m.egressChain = raw
+	m.mu.Unlock()
+	return m.pg.SetSetting(settingEgressChain, raw)
 }
 
 func (m *Manager) Close() error {
