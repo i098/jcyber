@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 )
 
@@ -181,6 +182,118 @@ func TestConfigStores(t *testing.T) {
 		t.Fatalf("skill visibility should be cleared on delete: %+v", names2)
 	}
 	d.DeleteMCP(mid)
+}
+
+func TestSeedHeadedBrowserDefaults(t *testing.T) {
+	d, err := Open(testDSN(t))
+	if err != nil {
+		t.Skipf("postgres unavailable (%v) — skipping", err)
+	}
+	defer d.Close()
+
+	findBrowser := func() *MCPServer {
+		servers, err := d.ListMCP()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, server := range servers {
+			if server.Name == "browser" {
+				copy := *server
+				copy.Args = append(json.RawMessage(nil), server.Args...)
+				copy.Env = append(json.RawMessage(nil), server.Env...)
+				return &copy
+			}
+		}
+		return nil
+	}
+	beforeBrowser := findBrowser()
+	beforeSetting, hadSetting, err := d.GetSetting("headed_browser_defaults_v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agents := make([]*Agent, 0, 2)
+	beforeSkills := map[int64][]string{}
+	for _, key := range []string{"pentest", "worker"} {
+		a, err := d.GetAgentByKey(key)
+		if err != nil || a == nil {
+			t.Fatalf("agent %s: %v", key, err)
+		}
+		agents = append(agents, a)
+		beforeSkills[a.ID], _ = d.AgentSkillNames(a.ID)
+	}
+	t.Cleanup(func() {
+		if beforeBrowser == nil {
+			if current := findBrowser(); current != nil {
+				_ = d.DeleteMCP(current.ID)
+			}
+		} else {
+			_, _ = d.SaveMCP(beforeBrowser)
+		}
+		for _, a := range agents {
+			_ = d.SetAgentSkillVisibility(a.ID, beforeSkills[a.ID])
+		}
+		if hadSetting {
+			_ = d.SetSetting("headed_browser_defaults_v1", beforeSetting)
+		} else {
+			_, _ = d.Exec(`DELETE FROM settings WHERE key='headed_browser_defaults_v1'`)
+		}
+	})
+
+	browser := beforeBrowser
+	if browser == nil {
+		browser = &MCPServer{Name: "browser"}
+	}
+	browser.Transport, browser.Command = "stdio", "npx"
+	browser.Args, browser.Env = json.RawMessage(`["@playwright/mcp","--headless"]`), json.RawMessage(`{}`)
+	if _, err := d.SaveMCP(browser); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = d.Exec(`DELETE FROM settings WHERE key='headed_browser_defaults_v1'`)
+	for _, a := range agents {
+		if err := d.ToggleSkillVisibility(a.ID, "playwright-cli", false); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := d.seedHeadedBrowserDefaults(); err != nil {
+		t.Fatal(err)
+	}
+	var args []string
+	if current := findBrowser(); current == nil {
+		t.Fatal("browser MCP was not seeded")
+	} else if err := json.Unmarshal(current.Args, &args); err != nil ||
+		current.Command != "playwright-mcp" || len(args) != 2 ||
+		args[0] != "--idle-timeout" || args[1] != "300000" {
+		t.Fatalf("browser command=%q args=%s err=%v, want headed managed default", current.Command, current.Args, err)
+	}
+	for _, a := range agents {
+		names, _ := d.AgentSkillNames(a.ID)
+		if !slices.Contains(names, "playwright-cli") {
+			t.Fatalf("agent %s missing playwright-cli: %v", a.Key, names)
+		}
+	}
+
+	current := findBrowser()
+	current.Args = json.RawMessage(`["user-custom-browser"]`)
+	if _, err := d.SaveMCP(current); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = d.Exec(`DELETE FROM settings WHERE key='headed_browser_defaults_v1'`)
+	if err := d.seedHeadedBrowserDefaults(); err != nil {
+		t.Fatal(err)
+	}
+	if current = findBrowser(); string(current.Args) != `["user-custom-browser"]` {
+		t.Fatalf("migration overwrote custom browser args: %s", current.Args)
+	}
+	if err := d.ToggleSkillVisibility(agents[1].ID, "playwright-cli", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.seedHeadedBrowserDefaults(); err != nil {
+		t.Fatal(err)
+	}
+	if names, _ := d.AgentSkillNames(agents[1].ID); slices.Contains(names, "playwright-cli") {
+		t.Fatalf("versioned seed resurrected disabled worker skill: %v", names)
+	}
 }
 
 func contains(s, sub string) bool {

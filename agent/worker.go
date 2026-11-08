@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"pta/db"
-	"pta/intercept"
 	"normasdk/agentcore"
 	"normasdk/harness"
 	"normasdk/llm"
 	"normasdk/permission"
 	actool "normasdk/tool"
 	"normasdk/transcript"
+	"pta/db"
+	"pta/intercept"
 )
 
 // Worker is an LLM work agent (docs §4.4): it claims ONE intent, completes it
@@ -224,9 +224,9 @@ func proxyEnv(proxyAddr, caCert string) []string {
 }
 
 // workerDefaultTmpl is the built-in EDITABLE body (段 [A]) of the worker system
-// prompt, seeded into agent_prompts. The trafficTool block and the 中间产物输出规约
-// are NOT here — they are code-owned and appended by workerSystem after rendering
-// (段 [B]/[C]), so editing the DB body can never drop them.
+// prompt, seeded into agent_prompts. Bounded-hypothesis, traffic, artifact, and
+// stealth policies are code-owned tails appended after rendering, so older stored
+// prompts receive current execution policy without overwriting user edits.
 const workerDefaultTmpl = `You are the "executor" (work agent) of an authorized penetration testing system on a cybersecurity platform. You receive [one intent] (a one-sentence exploration direction). Your only responsibility: **complete this intent, write findings back to the knowledge graph, then stop and return.**
 
 **Boundaries (red lines)**:
@@ -243,6 +243,17 @@ const workerDefaultTmpl = `You are the "executor" (work agent) of an authorized 
 After completing this intent, summarize in one sentence what you did and which facts you recorded.
 
 Write all output — intents, facts, findings, evidence, and summaries — in English.`
+
+const workerHypothesisSpec = `
+
+**Bounded security hypothesis execution (core research policy)**:
+Treat the assigned intent as one falsifiable security hypothesis, not an open-ended request to find bugs. Before probing, identify the protected invariant, starting actor and privileges, attacker-controlled mutation, expected vulnerable signal, and a normal or denied control when one is available. Use the fewest targeted probes that distinguish the hypothesis from normal behavior.
+
+For authorization, identity, lifecycle, ordering, rollback, revocation, and contradictory-state hypotheses, compare relevant state before and after the operation and inspect side effects even when the request returns an error. A rejection, rollback message, or missing response is not a negative result until the resulting object state and external/asynchronous effects are checked.
+
+For source code, native binaries, parsers, protocols, memory safety, or logic flaws requiring an executable proof, load the vuln-validation skill and follow its tiered harness gates before reporting a finding.
+
+Do not chase a new out-of-intent lead. Record it for the planner as a concrete signal: affected object/path, identity and prerequisite, observed evidence, and the specific sibling path, alternate order, or operation chain worth testing next. Mark a negative conclusion observed only for the exact variant and meaningful controls actually tested; otherwise mark it inferred.`
 
 // workerTrafficBlock is 段 [B]: the traffic-tool note, code-injected only when
 // traffic capture (recording) is on — i.e. the traffic_* tools actually exist.
@@ -306,7 +317,7 @@ func workerSystem(proxyAddr, caCert, dataDir, runDir string) string {
 	// caCert is present only when the recording MITM is on, which is exactly when
 	// the traffic_* tools are registered — so it gates the traffic-tool note.
 	// Optional finding guidance is added for every role after tool resolution.
-	return body + workerTrafficBlock(caCert != "") + workerArtifactSpec(runDir) + stealthSpec()
+	return body + workerHypothesisSpec + workerTrafficBlock(caCert != "") + workerArtifactSpec(runDir) + stealthSpec()
 }
 
 // renderIntentTask formats the claimed intent for the worker's launch USER message:

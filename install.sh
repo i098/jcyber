@@ -44,6 +44,44 @@ if [ -z "$DSN" ]; then
   fi
 fi
 
+# ── isolated headed browser ─────────────────────────────────
+BROWSER_ENDPOINT=""
+BROWSER_BIN=""
+if command -v docker >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+  BROWSER_TOOLS="$PWD/data/browser-tools"
+  TOKEN_FILE="$PWD/data/browserless.token"
+  mkdir -p "$BROWSER_TOOLS"
+  if [ ! -s "$TOKEN_FILE" ]; then
+    (umask 077; node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("hex"))' >"$TOKEN_FILE")
+  fi
+  BROWSER_TOKEN="$(cat "$TOKEN_FILE")"
+  BROWSER_IMAGE='ghcr.io/browserless/chromium:v2.58.3@sha256:2d891ba17f069e7da7867bc7f86d40c36267f0108f7178c5700a8fdf6ba4eca6'
+  docker rm -f jcyber-browser >/dev/null 2>&1 || true
+  docker run -d --name jcyber-browser --restart unless-stopped \
+    --label io.jcyber.role=browser -p 127.0.0.1:8931:3000 \
+    --shm-size=1g --read-only \
+    --tmpfs /tmp:rw,nosuid,nodev,size=768m,mode=1777 \
+    --tmpfs /home/blessuser:rw,nosuid,nodev,size=64m,uid=999,gid=999,mode=0700 \
+    --cap-drop=ALL --security-opt no-new-privileges:true \
+    --pids-limit=512 --memory=3g --memory-swap=3g --cpus=2 \
+    -e TOKEN="$BROWSER_TOKEN" -e CONCURRENT=2 -e QUEUED=4 \
+    -e TIMEOUT=1800000 -e MAX_RECONNECT_TIME=300000 \
+    -e HEALTH=true -e MAX_MEMORY_PERCENT=90 -e MAX_CPU_PERCENT=90 \
+    "$BROWSER_IMAGE" >/dev/null
+  info "waiting for isolated headed browser"
+  for i in $(seq 1 60); do
+    curl -fsS "http://127.0.0.1:8931/active?token=$BROWSER_TOKEN" >/dev/null 2>&1 && break
+    sleep 1
+  done
+  curl -fsS "http://127.0.0.1:8931/active?token=$BROWSER_TOKEN" >/dev/null ||
+    die "isolated browser failed to become ready"
+  npm install --prefix "$BROWSER_TOOLS" --no-audit --no-fund \
+    @playwright/cli@0.1.23 @playwright/mcp@0.0.84 >/dev/null
+  BROWSER_BIN="$BROWSER_TOOLS/node_modules/.bin"
+  BROWSER_ENDPOINT="ws://127.0.0.1:8931/chromium?token=$BROWSER_TOKEN&headless=false&timeout=1800000"
+  ok "isolated headed browser ready (2 sessions, 30-minute hard timeout)"
+fi
+
 # ── toolchain ───────────────────────────────────────────────
 command -v go >/dev/null 2>&1 || die "Go >= 1.26 required: https://go.dev/dl/"
 
@@ -64,4 +102,6 @@ ok "built ./jcyber"
 
 # ── run ─────────────────────────────────────────────────────
 info "starting console on http://127.0.0.1:8787 (Ctrl-C to stop)"
+PATH="${BROWSER_BIN:+$BROWSER_BIN:}$PATH" \
+JCYBER_BROWSER_CDP_ENDPOINT="$BROWSER_ENDPOINT" PLAYWRIGHT_MCP_CDP_ENDPOINT="$BROWSER_ENDPOINT" \
 JCYBER_PG_DSN="$DSN" exec ./jcyber -addr 127.0.0.1:8787 -proxy 127.0.0.1:8788

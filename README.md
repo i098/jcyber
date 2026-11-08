@@ -104,39 +104,63 @@ Report each step's result before moving on. Never expose ports on the public IP.
 ## Features
 
 - **Planner and workers:** an event-driven planner hands one-sentence intents to workers.
+- **Threat-model mutation:** each graph signal becomes bounded, target-specific hypotheses across independent workers.
+- **Tiered executable validation:** source-code hypotheses advance from isolated fuzz/sanitizer harnesses to multi-component and full-environment proofs only when evidence requires it.
 - **Dual knowledge graph:** target topology and task goals in Postgres; chains keep order.
 - **Evidence-first findings:** every request and response is recorded and bound to its finding.
 - **Reports and retests:** a report agent writes the writeup; a retest agent re-verifies it.
 - **Stealth discipline:** workers look like an ordinary browser: realistic UAs, cookies, pacing.
+- **Headed signup browser:** Playwright runs on a real X display for registration and credential-minting flows that reject headless browsers.
 - **Any OpenAI-compatible model:** provider pool, failover, per-role reasoning effort.
 - **Approvals:** deny or ask rules hold state-changing commands for a human.
 - **Skills and MCP:** drop-in `SKILL.md` playbooks and remote MCP servers, editable in console.
 - **Asset sync:** pull assets from ScopeSentry by project or task.
 - **One-click update:** SHA256-verified self-update with rollback.
 
+### Headed signup browser
+
+Docker Compose and `install.sh` launch a pinned Browserless Chromium sidecar for
+headed registration flows. Browser processes run non-root, outside the JCyber
+control plane, with Xvfb, init-based reaping, a read-only filesystem, bounded
+CPU/memory/PIDs, 1 GiB shared memory, two concurrent sessions, and a 30-minute
+hard session timeout. The service is not published publicly.
+
+`worker` and `pentest` agents receive the `playwright-cli` skill. Each signup
+uses a unique named session, a five-minute idle timeout, and the sticky proxy
+returned by `test_login_identity` from registration through verification and
+login. Normal completion closes the exact session; server timeout removes an
+abandoned browser. Headed mode reduces headless-only blocks but does not make
+automation undetectable and never bypasses CAPTCHA, MFA, or site policy.
+
+The optional `browser` MCP uses the same isolated sidecar when enabled under
+**System → MCP**.
+
 ## How it works
 
 ```mermaid
 flowchart LR
     YOU[You] -- "goal" --> T[Task]
-    T --> P[Planner]
-    P -- "one intent per surface" --> W[Workers x5]
+    T --> P[Threat-model mutator / planner]
+    P -- "bounded hypotheses" --> W[Workers x5]
     W -- "paced requests" --> REC[Recording proxy]
     REC --> WS[Residential gateway] --> TARGET[Target]
-    W -- "facts, assets" --> G[(Knowledge graph)]
+    W -- "facts, assets, negative evidence" --> G[(Knowledge graph)]
     REC -- "every exchange" --> G
-    G -- "promise spotted" --> P
+    G -- "new signal mutates hypotheses" --> P
     W -- "verified + evidence" --> F[Finding] --> R[Report agent]
 ```
 
 
-A planner reads the task graph and hands one-sentence intents to workers. Each
-worker takes one intent, exercises the target, and writes what it confirms back
-to the graph. A finding only counts when the worker actually triggered it and
-captured the evidence; version matches never count. Every request flows through
-the recording proxy on `:8788`, so a finding carries the request and response
-that prove it, in reproduction order. You watch from the console, steer through
-chat, and approve whatever the rules flag.
+A planner derives a compact threat model from the goal, assets, trust boundaries,
+state transitions, and current graph. It mutates relevant security assumptions
+into concrete, falsifiable one-sentence hypotheses and hands each bounded
+hypothesis to a worker. Every fact, finding, and observed negative result feeds
+the next planner round, which explores sibling access paths, identities, event
+orders, lifecycle states, or operation chains without repeating an exhausted
+variant. A finding only counts when a worker triggers it and captures evidence;
+version matches never count. Every request flows through the recording proxy on
+`:8788`, so findings carry their proving traffic in reproduction order. You
+watch from the console, steer through chat, and approve whatever the rules flag.
 
 ## Repository layout
 

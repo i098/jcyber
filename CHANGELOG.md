@@ -1,4 +1,29 @@
 # Changelog
+## [Unreleased] - 2026-11-08
+
+- Planner rounds now derive a task-specific threat model and mutate 13
+  enforcement, identity, lifecycle, ordering, rollback, and composition angles
+  into bounded, falsifiable worker intents.
+- New facts, findings, and observed negative results feed target-specific
+  sibling and chain variants back into the planner instead of restarting broad
+  exploration. Workers verify state and side effects even after rejected or
+  rolled-back operations.
+- The mutation and execution policies are code-owned prompt tails, so upgrades
+  apply them to existing installations without overwriting editable prompts.
+- Headed signup support now uses a pinned, non-root Browserless sidecar instead
+  of running Chrome beside JCyber secrets. Browser sessions have concurrency,
+  resource, five-minute idle, and 30-minute hard limits; Tini and explicit
+  client shutdown prevent zombie and stale processes.
+- Worker and pentest agents receive the Playwright CLI skill. Signup guidance
+  keeps each test identity on one named session and sticky proxy through email
+  verification, login, and credential creation.
+- Source-code and native-binary investigations gain a tiered validation skill:
+  static hypotheses must pass an isolated-function harness or focused fuzzer,
+  then a minimal multi-component harness, before full builds or VMs are used.
+- Planner and worker policies now keep static analysis as inferred evidence,
+  gate each validation tier on executable reachability, and reserve confirmed
+  findings for reproducible PoCs with controls.
+
 ## [Unreleased] - 2026-11-05
 
 - `test_login_identity` ships with the app (seeded once, editable afterwards).

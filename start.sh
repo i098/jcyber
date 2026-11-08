@@ -27,7 +27,40 @@ RESTART_CODE=75
 MAX_DELAY=60
 
 child=0
+display_child=0
 stopping=0
+
+# Headed Playwright needs a display. Native desktops already provide one; a
+# headless Linux host/container gets one private, non-networked Xvfb display.
+start_display() {
+	if [ -n "${DISPLAY:-}" ] || ! command -v Xvfb >/dev/null 2>&1; then
+		return
+	fi
+	display=99
+	while [ -S "/tmp/.X11-unix/X$display" ]; do
+		display=$((display + 1))
+	done
+	Xvfb ":$display" -screen 0 1920x1080x24 -nolisten tcp >/dev/null 2>&1 &
+	display_child=$!
+	export DISPLAY=":$display"
+	echo "[jcyber] headed browser display $DISPLAY"
+}
+
+stop_display() {
+	if [ "$display_child" -ne 0 ]; then
+		kill -TERM "$display_child" 2>/dev/null || true
+		wait "$display_child" 2>/dev/null || true
+		display_child=0
+	fi
+}
+
+cleanup_browser_clients() {
+	if [ "${JCYBER_MANAGED_BROWSER:-}" != "1" ] || ! command -v playwright-cli >/dev/null 2>&1; then
+		return
+	fi
+	timeout 5 playwright-cli close-all >/dev/null 2>&1 || true
+	timeout 5 playwright-cli kill-all >/dev/null 2>&1 || true
+}
 
 # 转发停止信号给 jcyber 本体。
 #
@@ -39,8 +72,12 @@ forward() {
 	if [ "$child" -ne 0 ]; then
 		kill -TERM "$child" 2>/dev/null || true
 	fi
+	cleanup_browser_clients
+	stop_display
 }
 trap forward INT TERM
+start_display
+cleanup_browser_clients
 
 delay=1
 while :; do
@@ -58,12 +95,16 @@ while :; do
 	child=0
 
 	if [ "$stopping" -eq 1 ]; then
+		cleanup_browser_clients
+		stop_display
 		echo "[jcyber] 已停止"
 		exit 0
 	fi
 
 	case "$code" in
 		0)
+			cleanup_browser_clients
+			stop_display
 			echo "[jcyber] 正常退出"
 			exit 0
 			;;

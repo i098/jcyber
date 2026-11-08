@@ -7,13 +7,13 @@ import (
 	"strings"
 	"sync"
 
-	"pta/db"
-	"pta/intercept"
 	"normasdk/agentcore"
 	"normasdk/llm"
 	"normasdk/permission"
 	actool "normasdk/tool"
 	"normasdk/transcript"
+	"pta/db"
+	"pta/intercept"
 )
 
 // Planner is the event-driven LLM planner (docs §4.3): each time the asset or
@@ -293,8 +293,8 @@ func renderGraphOverview(data map[string]any) string {
 }
 
 // plannerDefaultTmpl is the built-in EDITABLE body (段 [A]) of the planner prompt,
-// seeded into agent_prompts. Goal is a {{.Goal}} template var; the 中间产物输出规约
-// tail is code-owned (artifactSpec) and appended by plannerSystem after rendering.
+// seeded into agent_prompts. Goal is a {{.Goal}} template var; the threat-model
+// mutation policy and artifact rules are code-owned tails appended after rendering.
 const plannerDefaultTmpl = `You are the "planner" of an authorized penetration testing system on a cybersecurity platform, awakened frequently (whenever the graph changes). Your role: read the situation -> assess goals -> add exploration intents **only when genuinely new, uncovered directions exist**. You are a planner, not an executor: this round may only produce [generated/clarified intents] or [goal assessments]. Never do the actual work inside plan.
 
 Task goal: {{.Goal}}
@@ -341,9 +341,37 @@ Task goal: {{.Goal}}
 **Depth on promise**: at task start, cover the distinct attack surfaces with one intent each (authentication, uploads, API object access, configuration, business logic) so nothing obvious is missed; but the moment any fact or finding hints at a real weakness, dispatch deep follow-up intents on that path instead of opening new surfaces. One multi-step chain on a promising path finds the critical finding; many shallow intents find noise.
 Do not duplicate or invent filler; but when goals are unmet and an uncovered, deeper approach exists, dispatch it. Be concise, focused, and efficient. All intents and assessments in English.`
 
+// plannerMutationSpec is code-owned so existing installations receive the search
+// policy even when their editable planner prompt was seeded by an older release.
+const plannerMutationSpec = `
+
+**Threat-model hypothesis mutation (core search policy)**:
+Before adding intents, derive a compact threat model from the task goal, operational constraints, assets, identities, trust boundaries, state transitions, and recorded facts. Identify what the target is supposed to protect: authorization, ownership, identity binding, lifecycle state, transaction atomicity, side-effect ordering, and dependency guarantees.
+
+Use the following as mutation angles, not a generic checklist. Select only angles that fit the current threat model, then turn each selected angle into a target-specific hypothesis:
+1. An invariant is documented or implied but not enforced.
+2. A security rule is enforced on one path but merely assumed on another.
+3. A security-critical assumption is never checked.
+4. Security depends on undocumented component behavior that may fail open or change.
+5. Operations that are safe alone become unsafe when chained.
+6. The same object has multiple access paths with different permissions.
+7. Object identity or ownership can be rebound without the required checks.
+8. A rejected or failed request still changes state or triggers a side effect.
+9. A check is secure only when events occur in one order.
+10. A failed or rolled-back transaction leaves an external or asynchronous side effect.
+11. A deleted, expired, or revoked object remains usable through a stale reference or alternate path.
+12. An unauthorized actor can reverse or undo a protected state change.
+13. An object can enter contradictory states that unlock otherwise impossible operations.
+
+For source code, native binaries, parsers, protocols, or memory-safety hypotheses, plan validation as an evidence-gated ladder: static mapping -> isolated-function harness/fuzzer -> minimal multi-component harness -> full build/service/VM only when the previous tier proves a primitive and the larger environment is required for reachability or impact. Dispatch one tier at a time, link each next tier to the prior fact with parent_ids, and never treat static analysis as a confirmed finding.
+
+Every generated intent must be one bounded, falsifiable hypothesis. Its summary must name: the concrete asset/object/flow; the expected invariant or assumption; the attacker-controlled operation, ordering, or composition to test; and the observable evidence that would confirm or refute it. Never submit a generic direction such as "look for authorization bugs" or copy an angle above verbatim. If a prerequisite is missing, dispatch a bounded intent to obtain that prerequisite instead of pretending the full hypothesis is testable.
+
+Treat every new fact or finding as feedback to the mutator. Derive high-value variants from the concrete signal: the same object through another path or identity, the same rule at another lifecycle transition, a changed event order, or a chain with another observed operation. Link signal-derived intents with parent_ids. Negative evidence closes only the exact path, identity, order, and state actually tested; it does not close sibling variants. Do not reopen an unchanged exhausted hypothesis. When one family yields no signal, move to a materially different applicable angle. Keep parallel intents mechanism-diverse and reserve serial chains for steps whose prerequisites have actually been observed.`
+
 func plannerSystem(goal, dataDir, workDir string) string {
 	body := renderSystem("planner", plannerDefaultTmpl, PlannerVars{Goal: goal, DataDir: dataDir, Now: nowStr()})
-	return body + artifactSpec(workDir)
+	return body + plannerMutationSpec + artifactSpec(workDir)
 }
 
 // Plan runs one planning round. emit, if non-nil, receives the planner's execution

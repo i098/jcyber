@@ -1,6 +1,6 @@
 ---
 name: playwright-cli
-description: Automate browser interactions, test web pages and work with Playwright tests.
+description: Automate browser interactions, including headed signup flows, credential creation, and Playwright tests.
 allowed-tools: Bash(playwright-cli:*) Bash(npx:*) Bash(npm:*)
 ---
 
@@ -22,6 +22,56 @@ playwright-cli screenshot
 # close the browser
 playwright-cli close
 ```
+
+## Headed signup and credential minting
+
+Use the isolated headed browser when a site rejects headless registration.
+Headed mode changes the browser runtime; it does not authorize bypassing CAPTCHA,
+MFA, or site policy.
+
+1. Call `test_login_identity` with `action=select_login` before opening the
+   signup page. Keep its email, mailbox id, and `sticky_proxy` private.
+2. Create `.playwright/cli.config.json` in the current intent directory with
+   mode `0600`. When `JCYBER_BROWSER_CDP_ENDPOINT` is set, use it as
+   `browser.cdpEndpoint`, append the URL-encoded
+   `sticky_proxy.url` as `externalProxyServer`, and never print the resulting
+   URL because it contains the internal browser token and proxy credentials:
+
+   ```json
+   {
+     "browser": {
+       "cdpEndpoint": "ws://browser:3000/chromium?token=<private>&headless=false&timeout=1800000&externalProxyServer=http%3A%2F%2Fuser%3Apass%40proxy%3A10000"
+     }
+   }
+   ```
+
+   If no managed endpoint exists, use a native headed browser only on a trusted
+   desktop with `browser.launchOptions.headless=false` and the structured
+   `launchOptions.proxy` fields. Do not launch an unsandboxed local Chrome in a
+   server/container.
+3. Use one opaque named session per intent attempt. Managed sessions are
+   ephemeral and receive both a five-minute client idle deadline and a
+   30-minute server deadline:
+
+   ```bash
+   playwright-cli -s=signup-<intent-id>-<random> --config=.playwright/cli.config.json open https://target.example/signup --idle-timeout=300000
+   ```
+
+4. Keep signup, verification-link navigation, login, and credential creation
+   in that same session and sticky proxy. Use `list_mail` / `read_mail` or
+   `gmail_read` for verification. Stop and record a blocker when human CAPTCHA,
+   MFA, or consent is required.
+5. Save approved reusable state with
+   `playwright-cli -s=<session> state-save auth-state.json`, set the file mode to
+   `0600`, register the minted credential as a credential asset, and never place
+   secrets in facts, logs, screenshots, or URLs. Then call
+   `playwright-cli -s=<session> close`. Never use `detach`: it intentionally
+   leaves the remote browser running.
+
+The managed browser service is the process-isolation and cleanup boundary.
+Never use `close-all` or `kill-all` from a worker; those commands can terminate
+another intent. Server timeouts remain the final cleanup path if normal close
+fails.
 
 ## Clicks that do nothing
 

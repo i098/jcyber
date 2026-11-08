@@ -252,17 +252,8 @@ ON CONFLICT (agent_id, var_name) DO UPDATE
 		}
 		_ = d.SetSetting("interactive_shell_default_v1", "true")
 	}
-	// Seed the built-in browser (Playwright) MCP once — DISABLED by default (用户
-	// 需要时自行启用), no proxy by default. The traffic-capture toggle injects/strips
-	// the recording proxy + CA at runtime (server.Manager.syncBrowserMCPProxy).
-	// Insert only if absent so we never clobber user edits (args/env/enabled/
-	// visibility) on restart.
-	if _, err := d.Exec(`
-INSERT INTO mcp_servers(name, transport, command, args, env, enabled)
-VALUES ('browser', 'stdio', 'npx', $1, '{}', false)
-ON CONFLICT (name) DO NOTHING`,
-		`["@playwright/mcp","--headless"]`); err != nil {
-		return fmt.Errorf("seed browser mcp: %w", err)
+	if err := d.seedHeadedBrowserDefaults(); err != nil {
+		return fmt.Errorf("seed headed browser defaults: %w", err)
 	}
 	// NOTE: the placeholder ScopeSentry data-source MCP (empty URL + empty X-API-Key,
 	// disabled) is seeded directly in schema.sql §F so a raw `psql < schema.sql` init
@@ -288,6 +279,39 @@ ON CONFLICT (name) DO NOTHING`,
 		return fmt.Errorf("seed custom tools: %w", err)
 	}
 	return nil
+}
+
+// seedHeadedBrowserDefaults upgrades only the untouched browser MCP default and
+// exposes the CLI skill to execution agents once. The version flag prevents a
+// later user disable from being resurrected on every restart.
+func (d *DB) seedHeadedBrowserDefaults() error {
+	const flag = "headed_browser_defaults_v1"
+	if v, _, _ := d.GetSetting(flag); v == "true" {
+		return nil
+	}
+	const oldArgs = `["@playwright/mcp","--headless"]`
+	const headedArgs = `["--idle-timeout","300000"]`
+	if _, err := d.Exec(`
+INSERT INTO mcp_servers(name, transport, command, args, env, enabled)
+VALUES ('browser', 'stdio', 'playwright-mcp', $1, '{}', false)
+ON CONFLICT (name) DO NOTHING`, headedArgs); err != nil {
+		return err
+	}
+	if _, err := d.Exec(`
+UPDATE mcp_servers SET command='playwright-mcp', args=$1::jsonb
+WHERE name='browser' AND transport='stdio' AND command='npx' AND args=$2::jsonb`,
+		headedArgs, oldArgs); err != nil {
+		return err
+	}
+	for _, key := range []string{"pentest", "worker"} {
+		if _, err := d.Exec(`
+INSERT INTO agent_skill_visibility(agent_id, skill_name, enabled)
+SELECT id, 'playwright-cli', true FROM agents WHERE key=$1
+ON CONFLICT (agent_id, skill_name) DO NOTHING`, key); err != nil {
+			return err
+		}
+	}
+	return d.SetSetting(flag, "true")
 }
 
 // seedDefaultAssetInterceptRules inserts the built-in asset blocklist (fuzzy
@@ -322,12 +346,13 @@ ON CONFLICT DO NOTHING`, r.kind, r.pattern, r.note); err != nil {
 // builtinSkillVisibility maps a shipped skill's directory name → the built-in
 // agent keys that should see it by default. The skill FILES themselves live on the
 // filesystem (SkillDir, loaded by norma at runtime); DB only carries this visibility
-// binding. Skills omitted here (e.g. playwright-cli, scopesentry) ship invisible by
-// default — the user turns them on per-agent when needed. scopesentry additionally
-// declares `mcps: ScopeSentry`, which only takes effect once it's made visible and
-// that MCP is enabled/configured.
+// binding. Skills omitted here (e.g. scopesentry) ship invisible by default.
+// scopesentry additionally declares `mcps: ScopeSentry`, which only takes effect
+// once it is visible and that MCP is enabled/configured. Headed browser visibility
+// uses its own versioned one-time seed above so a later user disable stays disabled.
 var builtinSkillVisibility = map[string][]string{
-	"api-recon": {"auto", "pentest", "worker"},
+	"api-recon":       {"auto", "pentest", "worker"},
+	"vuln-validation": {"pentest", "worker"},
 }
 
 // seedBuiltinSkillVisibility binds the shipped built-in skills to their default

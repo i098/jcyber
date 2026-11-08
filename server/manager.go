@@ -673,11 +673,12 @@ func (m *Manager) syncBrowserMCPProxy() {
 
 	proxy := m.ProxyAddr()  // "" when capture off
 	cert := m.ProxyCACert() // "" when capture off
+	remoteBrowser := strings.TrimSpace(os.Getenv("PLAYWRIGHT_MCP_CDP_ENDPOINT")) != ""
 
 	args := stripProxyArgs(decodeStrSlice(srv.Args))
 	env := decodeStrMap(srv.Env)
 	delete(env, "NODE_EXTRA_CA_CERTS")
-	if proxy != "" {
+	if proxy != "" && !remoteBrowser {
 		args = append(args, "--proxy-server", proxy)
 		if cert != "" {
 			env["NODE_EXTRA_CA_CERTS"] = cert
@@ -689,7 +690,9 @@ func (m *Manager) syncBrowserMCPProxy() {
 		log.Printf("[mcp] browser proxy sync failed: %v", err)
 		return
 	}
-	if proxy != "" {
+	if remoteBrowser {
+		log.Printf("[mcp] browser MCP uses isolated remote browser runtime")
+	} else if proxy != "" {
 		log.Printf("[mcp] browser MCP now uses traffic proxy %s (CA %s)", proxy, cert)
 	} else {
 		log.Printf("[mcp] browser MCP traffic proxy configuration cleared")
