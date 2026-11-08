@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -282,14 +283,13 @@ ON CONFLICT (agent_id, var_name) DO UPDATE
 }
 
 // seedHeadedBrowserDefaults upgrades only the untouched browser MCP default and
-// exposes the CLI skill to execution agents once. The version flag prevents a
-// later user disable from being resurrected on every restart.
+// exposes the CLI skill to execution agents once. V2 also repairs V1 migrations
+// skipped while the runtime-managed proxy arguments were still present.
 func (d *DB) seedHeadedBrowserDefaults() error {
-	const flag = "headed_browser_defaults_v1"
+	const flag = "headed_browser_defaults_v2"
 	if v, _, _ := d.GetSetting(flag); v == "true" {
 		return nil
 	}
-	const oldArgs = `["@playwright/mcp","--headless"]`
 	const headedArgs = `["--idle-timeout","300000"]`
 	if _, err := d.Exec(`
 INSERT INTO mcp_servers(name, transport, command, args, env, enabled)
@@ -297,11 +297,19 @@ VALUES ('browser', 'stdio', 'playwright-mcp', $1, '{}', false)
 ON CONFLICT (name) DO NOTHING`, headedArgs); err != nil {
 		return err
 	}
-	if _, err := d.Exec(`
-UPDATE mcp_servers SET command='playwright-mcp', args=$1::jsonb
-WHERE name='browser' AND transport='stdio' AND command='npx' AND args=$2::jsonb`,
-		headedArgs, oldArgs); err != nil {
+	var transport, command string
+	var args []byte
+	if err := d.QueryRow(`
+SELECT transport, COALESCE(command, ''), args FROM mcp_servers WHERE name='browser'`,
+	).Scan(&transport, &command, &args); err != nil {
 		return err
+	}
+	if transport == "stdio" && command == "npx" && legacyHeadlessBrowserArgs(args) {
+		if _, err := d.Exec(`
+UPDATE mcp_servers SET command='playwright-mcp', args=$1::jsonb WHERE name='browser'`,
+			headedArgs); err != nil {
+			return err
+		}
 	}
 	for _, key := range []string{"pentest", "worker"} {
 		if _, err := d.Exec(`
@@ -312,6 +320,28 @@ ON CONFLICT (agent_id, skill_name) DO NOTHING`, key); err != nil {
 		}
 	}
 	return d.SetSetting(flag, "true")
+}
+
+func legacyHeadlessBrowserArgs(raw []byte) bool {
+	var args []string
+	if json.Unmarshal(raw, &args) != nil || len(args) < 2 ||
+		args[0] != "@playwright/mcp" || args[1] != "--headless" {
+		return false
+	}
+	for i := 2; i < len(args); i++ {
+		switch {
+		case args[i] == "--proxy-server" || args[i] == "--proxy-bypass":
+			i++
+			if i == len(args) {
+				return false
+			}
+		case strings.HasPrefix(args[i], "--proxy-server="),
+			strings.HasPrefix(args[i], "--proxy-bypass="):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // seedDefaultAssetInterceptRules inserts the built-in asset blocklist (fuzzy

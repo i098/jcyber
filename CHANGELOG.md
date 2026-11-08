@@ -14,6 +14,8 @@
   of running Chrome beside JCyber secrets. Browser sessions have concurrency,
   resource, five-minute idle, and 30-minute hard limits; Tini and explicit
   client shutdown prevent zombie and stale processes.
+- Browser-default upgrades now recognize runtime-added proxy arguments, so they
+  cannot record completion while leaving the legacy headless launcher in place.
 - Worker and pentest agents receive the Playwright CLI skill. Signup guidance
   keeps each test identity on one named session and sticky proxy through email
   verification, login, and credential creation.

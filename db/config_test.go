@@ -207,7 +207,7 @@ func TestSeedHeadedBrowserDefaults(t *testing.T) {
 		return nil
 	}
 	beforeBrowser := findBrowser()
-	beforeSetting, hadSetting, err := d.GetSetting("headed_browser_defaults_v1")
+	beforeSetting, hadSetting, err := d.GetSetting("headed_browser_defaults_v2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,9 +233,9 @@ func TestSeedHeadedBrowserDefaults(t *testing.T) {
 			_ = d.SetAgentSkillVisibility(a.ID, beforeSkills[a.ID])
 		}
 		if hadSetting {
-			_ = d.SetSetting("headed_browser_defaults_v1", beforeSetting)
+			_ = d.SetSetting("headed_browser_defaults_v2", beforeSetting)
 		} else {
-			_, _ = d.Exec(`DELETE FROM settings WHERE key='headed_browser_defaults_v1'`)
+			_, _ = d.Exec(`DELETE FROM settings WHERE key='headed_browser_defaults_v2'`)
 		}
 	})
 
@@ -244,11 +244,11 @@ func TestSeedHeadedBrowserDefaults(t *testing.T) {
 		browser = &MCPServer{Name: "browser"}
 	}
 	browser.Transport, browser.Command = "stdio", "npx"
-	browser.Args, browser.Env = json.RawMessage(`["@playwright/mcp","--headless"]`), json.RawMessage(`{}`)
+	browser.Args, browser.Env = json.RawMessage(`["@playwright/mcp","--headless","--proxy-server","http://127.0.0.1:8788","--proxy-bypass","localhost"]`), json.RawMessage(`{}`)
 	if _, err := d.SaveMCP(browser); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = d.Exec(`DELETE FROM settings WHERE key='headed_browser_defaults_v1'`)
+	_, _ = d.Exec(`DELETE FROM settings WHERE key='headed_browser_defaults_v2'`)
 	for _, a := range agents {
 		if err := d.ToggleSkillVisibility(a.ID, "playwright-cli", false); err != nil {
 			t.Fatal(err)
@@ -278,7 +278,7 @@ func TestSeedHeadedBrowserDefaults(t *testing.T) {
 	if _, err := d.SaveMCP(current); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = d.Exec(`DELETE FROM settings WHERE key='headed_browser_defaults_v1'`)
+	_, _ = d.Exec(`DELETE FROM settings WHERE key='headed_browser_defaults_v2'`)
 	if err := d.seedHeadedBrowserDefaults(); err != nil {
 		t.Fatal(err)
 	}
